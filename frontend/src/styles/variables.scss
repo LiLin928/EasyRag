@@ -1,0 +1,36 @@
+﻿// EasyRAG 变量定义
+
+// 状态色（来自原型）
+@use 'sass:color';
+$ok: #16A34A;
+$err: #DC2626;
+$warn: #D97706;
+$run: #0284C7;
+$wait: #7C3AED;
+$gray: #9ca3af;
+
+// 圆角
+$r-sm: 6px;
+$r: 8px;
+$r-lg: 12px;
+
+// 阴影
+$sh-1: 0 1px 2px rgba(0, 0, 0, 0.05);
+$sh-2: 0 2px 8px rgba(0, 0, 0, 0.08);
+$sh-3: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+// 布局尺寸
+$navbar-height: 60px;
+$sidebar-width: 200px;
+$sidebar-collapsed-width: 64px;
+$tagsview-height: 34px;
+
+// 颜色映射（用于 StatusChip）
+$status-colors: (
+  'ok': $ok,
+  'err': $err,
+  'warn': $warn,
+  'run': $run,
+  'wait': $wait,
+  'gray': $gray
+);
