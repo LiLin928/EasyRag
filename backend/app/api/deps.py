@@ -16,7 +16,7 @@ def _claims_from_header(authorization: str, expect_typ: str = "access") -> dict:
     return claims
 
 
-async def get_current_user(authorization: str = Header(...), db: AsyncSession = Depends(get_db)) -> User:
+async def get_current_user(authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db)) -> User:
     claims = _claims_from_header(authorization, "access")
     user = (await db.execute(select(User).where(User.id == claims["sub"]))).scalar_one_or_none()
     if not user or not user.is_active:
