@@ -30,5 +30,23 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # Tracing（可切换：langsmith / langfuse / none）
+    tracing_provider: str = "none"
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "easyrag"
+    langsmith_endpoint: str | None = None
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "http://localhost:3000"
+
+    # 默认模型（seed 用，env 可不配 → 不 seed）
+    llm_default_base_url: str | None = None
+    llm_default_api_key: str | None = None
+    llm_qa_model: str | None = None
+    llm_fast_model: str | None = None
+    embedding_model: str | None = None
+    embedding_dim: int = 1024
+    rerank_model: str | None = None
+
 
 settings = Settings()
