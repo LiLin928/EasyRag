@@ -13,6 +13,7 @@ class ErrorCode(IntEnum):
     PARAM_ERROR = 40001
     FILE_TOO_LARGE = 40002
     PRECISION_UNAVAILABLE = 40003
+    UNSUPPORTED_FILE = 40004
     LOGIN_FAILED = 40103           # 登录失败（落在认证段；前端 refresh 失败会跳登录，行为可接受）
     # 40100-40199 认证（40101/40102 触发前端 refresh）
     UNAUTHORIZED = 40101           # access token 过期
