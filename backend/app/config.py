@@ -1,8 +1,17 @@
+"""应用配置模块。
+
+基于 pydantic-settings 从 .env 文件读取配置，集中暴露全局 settings 单例。
+"""
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """全局应用配置。
+
+    所有字段均可通过 .env 文件或环境变量覆盖；标注 ``Field(...)`` 的为必填项。
+    """
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     env: str = "development"

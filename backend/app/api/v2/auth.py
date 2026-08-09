@@ -1,3 +1,7 @@
+"""认证路由模块。
+
+提供登录、刷新 token、获取当前用户信息等接口。
+"""
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +20,11 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login")
 async def login(params: LoginParams, db: AsyncSession = Depends(get_db)):
+    """用户登录。
+
+    按用户名查询用户并校验密码，成功后签发 access/refresh token；
+    用户不存在或密码错误均抛 LOGIN_FAILED。
+    """
     user = (await db.execute(select(User).where(User.username == params.username))).scalar_one_or_none()
     if not user or not verify_password(params.password, user.hashed_password):
         raise BizException(ErrorCode.LOGIN_FAILED, "用户名或密码错误")
@@ -29,10 +38,15 @@ async def login(params: LoginParams, db: AsyncSession = Depends(get_db)):
 
 @router.post("/refresh")
 async def refresh(params: RefreshParams):
+    """用 refresh token 换取新的 access token。
+
+    校验 refresh token 有效性与类型后，按其 sub(user_id) 重新签发 access token。
+    """
     claims = _claims_from_header("Bearer " + params.refresh_token, expect_typ="refresh")
     return ok(RefreshResult(access_token=create_access_token(claims["sub"]), expires_in=settings.jwt_access_expire).model_dump())
 
 
 @router.get("/user-info")
 async def user_info(me: User = Depends(get_current_user)):
+    """获取当前登录用户信息。"""
     return ok(UserInfo(id=str(me.id), username=me.username, display_name=me.display_name, role=me.role).model_dump())

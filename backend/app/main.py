@@ -1,3 +1,7 @@
+"""FastAPI 应用入口模块。
+
+负责创建应用、注册中间件与路由、配置异常处理器与生命周期。
+"""
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -15,6 +19,7 @@ _log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """应用生命周期：启动时确保初始管理员存在，yield 后执行关闭逻辑。"""
     await ensure_admin()
     yield
 
@@ -30,6 +35,11 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
+    """请求 id 中间件。
+
+    从 ``X-Request-ID`` 头读取或生成新的请求 id，绑定到 structlog contextvars，
+    并在响应头回写该 id，便于全链路追踪。
+    """
     rid = request.headers.get("X-Request-ID") or new_request_id()
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(request_id=rid, path=request.url.path)
@@ -42,6 +52,10 @@ async def request_id_middleware(request: Request, call_next):
 
 @app.exception_handler(BizException)
 async def biz_exception_handler(request: Request, exc: BizException):
+    """全局业务异常处理器。
+
+    将 BizException 转换为 HTTP 200 + 业务错误码的 ApiResponse 结构。
+    """
     return JSONResponse(status_code=200, content={"code": exc.code, "message": exc.message, "data": None})
 
 
@@ -51,4 +65,5 @@ app.include_router(health.router)
 
 @app.get("/")
 def root():
+    """根路径健康探针，返回服务名与状态。"""
     return {"code": 0, "message": "success", "data": {"service": "easyrag", "status": "ok"}}

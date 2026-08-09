@@ -1,7 +1,13 @@
+"""业务异常与错误码模块。
+
+定义统一的错误码枚举和 BizException 业务异常，用于在请求链路中携带业务错误信息。
+"""
 from enum import IntEnum
 
 
 class ErrorCode(IntEnum):
+    """业务错误码枚举（按区段划分）。"""
+
     SUCCESS = 0
     # 40001-40099 参数/请求错误
     PARAM_ERROR = 40001
@@ -22,7 +28,18 @@ class ErrorCode(IntEnum):
 
 
 class BizException(Exception):
+    """业务异常。
+
+    携带错误码与可读消息，由全局异常处理器统一转成 ApiResponse 结构。
+    """
+
     def __init__(self, code: ErrorCode, message: str | None = None):
+        """初始化业务异常。
+
+        Args:
+            code: 错误码（ErrorCode 枚举）。
+            message: 可读消息，未提供时使用错误码名称。
+        """
         self.code = int(code)
         self.message = message or code.name
         super().__init__(self.message)
