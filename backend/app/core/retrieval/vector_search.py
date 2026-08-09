@@ -7,7 +7,7 @@ _SQL = """
 SELECT id, document_id, content, clause_title, section_path, page_number,
        1 - (embedding <=> cast(:emb as vector)) AS score
 FROM chunks
-WHERE kb_id = ANY(:kb_ids)
+WHERE (cardinality(cast(:kb_ids as text[])) = 0 OR kb_id = ANY(cast(:kb_ids as text[])))
   AND (cast(:doc_ids as uuid[]) IS NULL OR document_id = ANY(cast(:doc_ids as uuid[])))
   AND (cast(:scope as uuid[]) IS NULL OR id = ANY(cast(:scope as uuid[])))
   AND embedding IS NOT NULL
