@@ -148,7 +148,8 @@ EasyRag/
 ## 9. 当前进度
 
 - ✅ Plan 1（基础设施）：脚手架/config/DB/ORM/统一响应/auth(JWT)/health/logging，22 测试绿，admin/admin123 可登录，连虚拟机 easyrag_v2
-- ⏳ Plan 2-9：settings/provider/langchain_factory → 知识库解析 → 检索 → chat → elements → workflow → tools/skills/mcp → agents/Phase3
+- ✅ Plan 2（settings + provider + langchain_factory）：model_configs/scenes 两表+迁移（Fernet 加密 key）、`/settings/models`+`/settings/scenes` API、async `build_chat_model`/`build_embeddings`（桥接 LangChain，冒烟验证 配置→ChatOpenAI 打通）、可切换 tracing（langsmith/langfuse/none）、启动 seed（5 内置场景）、ApiReranker。**38 测试绿**（Plan1+2）。注：langfuse 4.x + langchain 1.x 已对原 plan 适配（见 `app/providers/trace/factory.py` 注释 + 补 `langchain-openai`/`langchain-ollama` 依赖）
+- ⏳ Plan 3-9：知识库解析 → 检索 → chat → elements → workflow → tools/skills/mcp → agents/Phase3
 
 ---
 
