@@ -54,3 +54,11 @@ class SceneOut(BaseModel):
     description: str | None = None
     config: dict
     built_in: bool = False
+
+
+class SceneUpdate(BaseModel):
+    """场景更新请求体（部分更新，不改 code）。"""
+
+    name: str | None = None
+    description: str | None = None
+    config: dict | None = None
