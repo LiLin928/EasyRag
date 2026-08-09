@@ -5,5 +5,6 @@ from app.models.scene import Scene
 from app.models.knowledge_base import KnowledgeBase
 from app.models.document import Document, ParseTask
 from app.models.chunk import Chunk
+from app.models.tree_node import TreeNode, ElementPosition
 
-__all__ = ["Base", "User", "ModelConfig", "Scene", "KnowledgeBase", "Document", "ParseTask", "Chunk"]
+__all__ = ["Base", "User", "ModelConfig", "Scene", "KnowledgeBase", "Document", "ParseTask", "Chunk", "TreeNode", "ElementPosition"]
