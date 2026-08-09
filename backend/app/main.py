@@ -19,8 +19,12 @@ _log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期：启动时确保初始管理员存在，yield 后执行关闭逻辑。"""
+    """应用生命周期：启动时确保初始管理员存在、seed 内置数据、配置 tracing。"""
+    from app.core.seed import run_seed
+    from app.providers.trace.factory import configure_tracing
     await ensure_admin()
+    await run_seed()
+    configure_tracing()
     yield
 
 
