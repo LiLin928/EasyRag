@@ -8,10 +8,9 @@ import pytest
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# Fallbacks for required settings if .env absent during collection.
-# DATABASE_URL is provided by backend/.env (VM easyrag_v2); do NOT override here.
-os.environ.setdefault("SECRET_KEY", "test-secret")
-os.environ.setdefault("INIT_ADMIN_PASSWORD", "pw12345")
+# 必填配置由 backend/.env 提供（SECRET_KEY / DATABASE_URL / INIT_ADMIN_PASSWORD）。
+# 不在此 setdefault：pydantic 中 os.environ 优先级高于 env_file，setdefault 会覆盖 .env，
+# 导致测试建的 admin 密码与 .env（真实部署）不一致。
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -31,3 +30,8 @@ async def _dispose_engine():
         await engine.dispose()
     except Exception:
         pass
+
+
+# 注：不在此处加 session 级 admin bootstrap。admin 用户由 Task 10 在 easyrag_v2 持久化，
+# 且 session 级 asyncio.run 会用独立 event loop 连 PG，导致共享 engine 绑定到 bootstrap loop，
+# 与各测试的 function-scoped loop 冲突（"attached to a different loop"）。故省略。
