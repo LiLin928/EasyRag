@@ -48,5 +48,9 @@ class Settings(BaseSettings):
     embedding_dim: int = 1024
     rerank_model: str | None = None
 
+    # 对象存储（本地 FS → MinIO）
+    storage_type: str = "local"        # local | minio
+    storage_local_dir: str = "./data/files"
+
 
 settings = Settings()
