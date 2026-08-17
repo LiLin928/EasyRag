@@ -2,8 +2,9 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 
 from app.models.base import Base, TimestampMixin, UUIDPk
@@ -40,3 +41,7 @@ class Chunk(Base, UUIDPk, TimestampMixin):
     seq: Mapped[int] = mapped_column(Integer, default=0)
     embedding: Mapped[Optional[list]] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
     embedding_model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, server_default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    recall_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    char_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

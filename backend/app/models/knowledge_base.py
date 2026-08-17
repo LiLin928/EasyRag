@@ -3,6 +3,7 @@ import uuid
 
 from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.models.base import Base, TimestampMixin, UUIDPk
 
@@ -34,3 +35,10 @@ class KnowledgeBase(Base, UUIDPk, TimestampMixin):
     retrieval_top_k: Mapped[int] = mapped_column(Integer, default=5)
     doc_count: Mapped[int] = mapped_column(Integer, default=0)
     total_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    embedding_model_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("model_configs.id", ondelete="SET NULL"), nullable=True
+    )
+    rerank_model_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("model_configs.id", ondelete="SET NULL"), nullable=True
+    )
+    retrieval_config: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
