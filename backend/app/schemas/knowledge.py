@@ -1,4 +1,6 @@
 """knowledge 相关 Pydantic 请求/响应模型。"""
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -31,3 +33,58 @@ class KBOut(BaseModel):
     doc_count: int = 0
     total_size: int = 0
     created_at: str
+
+
+class MetadataFieldCreate(BaseModel):
+    """Metadata field creation request."""
+
+    key: str
+    name: str
+    scope: Literal["document", "chunk"]
+    data_type: Literal["string", "number", "date", "select", "boolean"]
+    options: list[str] = []
+    default_value: object | None = None
+    required: bool = False
+    filterable: bool = False
+    retrieval_filterable: bool = False
+    visible: bool = True
+    sort_order: int = 0
+
+
+class MetadataFieldUpdate(BaseModel):
+    """Metadata field partial update request."""
+
+    name: str | None = None
+    options: list[str] | None = None
+    default_value: object | None = None
+    required: bool | None = None
+    filterable: bool | None = None
+    retrieval_filterable: bool | None = None
+    visible: bool | None = None
+    sort_order: int | None = None
+
+
+class MetadataFieldReorder(BaseModel):
+    """Metadata field sort-order request."""
+
+    ids: list[str]
+
+
+class MetadataFieldOut(BaseModel):
+    """Metadata field response."""
+
+    id: str
+    kb_id: str
+    key: str
+    name: str
+    scope: str
+    data_type: str
+    options: list = []
+    default_value: object | None = None
+    required: bool = False
+    filterable: bool = False
+    retrieval_filterable: bool = False
+    visible: bool = True
+    built_in: bool = False
+    mapped_field: str | None = None
+    sort_order: int = 0
