@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from app.core.retrieval import fulltext_search, navigator, reranker, rrf_merge, vector_search
 from app.core.reference_builder import build_references
-from app.providers.langchain_factory import build_embeddings
+from app.providers.langchain_factory import build_embeddings, build_reranker_from_config
 
 
 @dataclass
@@ -31,13 +31,11 @@ class RetrievalPipeline:
 
     async def _reranker(self):
         """按 settings 配置构造 ApiReranker（未配则返回 None）。"""
-        from app.providers.rerank.api_reranker import ApiReranker
-        from app.security.crypto import decrypt
         from app.services.settings_service import get_default_model
         cfg = await get_default_model("rerank", "rerank") or await get_default_model("rerank")
         if not cfg:
             return None
-        return ApiReranker(url=cfg.url, api_key=decrypt(cfg.api_key_enc) if cfg.api_key_enc else "", model=cfg.name)
+        return await build_reranker_from_config(cfg)
 
     async def search(self, query: str, doc_ids: list[str], top_k: int = 5, enable_nav: bool = True) -> RetrievalResult:
         """执行检索：embed → (导航缩域) → 向量+全文 → RRF → (条件 rerank) → 引用。"""

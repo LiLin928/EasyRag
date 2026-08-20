@@ -88,3 +88,21 @@ class MetadataFieldOut(BaseModel):
     built_in: bool = False
     mapped_field: str | None = None
     sort_order: int = 0
+
+
+class RetrievalSettingsUpdate(BaseModel):
+    """Retrieval settings partial update request."""
+
+    embedding_model_id: str | None = None
+    rerank_model_id: str | None = None
+    retrieval_config: dict | None = None
+
+
+class RetrievalSettingsOut(BaseModel):
+    """Effective retrieval settings response."""
+
+    values: dict
+    resolved: dict
+    embedding_model: dict | None
+    rerank_model: dict | None
+    rebuild_required: bool
