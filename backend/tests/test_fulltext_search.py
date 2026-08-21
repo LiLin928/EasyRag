@@ -22,13 +22,14 @@ async def test_fulltext_search():
         s.add(d)
         await s.flush()
         doc_id = str(d.id)
+        kb_id = str(kb.id)
         await s.execute(text(
             "INSERT INTO chunks (id, document_id, kb_id, content, content_search, page_number, seq, element_count) "
-            "VALUES (gen_random_uuid(), :doc, 'ft_kb_test', 'forklift technical parameters', "
+            "VALUES (gen_random_uuid(), :doc, :kb, 'forklift technical parameters', "
             "'forklift technical parameters', 1, 0, 0)"
-        ), {"doc": doc_id})
+        ), {"doc": doc_id, "kb": kb_id})
         await s.commit()
-    hits = await search(query="forklift", kb_ids=["ft_kb_test"], doc_ids=None, scope=None, top_k=5)
+    hits = await search(query="forklift", kb_ids=[kb_id], doc_ids=None, scope=None, top_k=5)
     assert isinstance(hits, list)
-    assert all("score" in h for h in hits)
+    assert all("keyword_score" in h for h in hits)
     assert len(hits) >= 1  # forklift 子串，trigram 相似度应过阈值

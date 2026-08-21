@@ -12,8 +12,11 @@ from app.core.retrieval.pipeline import RetrievalPipeline, RetrievalResult
 class HybridRetriever(BaseRetriever):
     """混合检索 Retriever（向量+全文+RRF+Rerank+导航），适配 LangChain Runnable 接口。"""
 
+    kb_ids: List[str] = []
     doc_ids: List[str]
-    scene_config: object
+    settings: dict
+    embedding_model: object = None
+    rerank_model: object = None
     top_k: int = 5
     enable_nav: bool = True
     _pipeline: RetrievalPipeline = PrivateAttr()
@@ -21,7 +24,11 @@ class HybridRetriever(BaseRetriever):
 
     def __init__(self, **data):
         super().__init__(**data)
-        self._pipeline = RetrievalPipeline(scene_config=self.scene_config)
+        self._pipeline = RetrievalPipeline(
+            settings=self.settings,
+            embedding_model=self.embedding_model,
+            rerank_model=self.rerank_model,
+        )
 
     @property
     def last_result(self):
@@ -33,7 +40,13 @@ class HybridRetriever(BaseRetriever):
 
     async def _aget_relevant_documents(self, query: str, *,
                                        run_manager: AsyncCallbackManagerForRetrieverRun) -> List[Document]:
-        result = await self._pipeline.search(query, self.doc_ids, self.top_k, self.enable_nav)
+        result = await self._pipeline.search(
+            query,
+            kb_ids=self.kb_ids,
+            doc_ids=self.doc_ids,
+            top_k=self.top_k,
+            enable_nav=self.enable_nav,
+        )
         self._last_result = result
         return [Document(page_content=c.get("content", ""), metadata={
             "chunk_id": str(c.get("id")), "doc_id": str(c.get("document_id")),

@@ -1,37 +1,79 @@
-"""全文检索（pg_trgm 相似度）。"""
+"""Full-text retrieval using PostgreSQL pg_trgm similarity."""
 from sqlalchemy import text
 
+from app.core.retrieval.metadata_filter import (
+    MetadataFilter,
+    build_predicates_for_kbs,
+)
 from app.db.session import async_session
 
+
 _SQL = """
-SELECT id, document_id, content, clause_title, section_path, page_number,
-       similarity(content_search, :q) AS score
-FROM chunks
-WHERE (cardinality(cast(:kb_ids as text[])) = 0 OR kb_id = ANY(cast(:kb_ids as text[])))
-  AND (cast(:doc_ids as uuid[]) IS NULL OR document_id = ANY(cast(:doc_ids as uuid[])))
-  AND (cast(:scope as uuid[]) IS NULL OR id = ANY(cast(:scope as uuid[])))
-  AND content_search % :q
-ORDER BY score DESC
+SELECT c.id, c.document_id, d.name AS document_name,
+       c.content, c.clause_title, c.section_path, c.page_number,
+       c.metadata AS metadata, c.char_count, c.embedding_model,
+       similarity(c.content_search, :q) AS keyword_score
+FROM chunks c
+JOIN documents d ON d.id = c.document_id
+WHERE d.kb_id::text = ANY(cast(:kb_ids as text[]))
+  AND d.enabled
+  AND c.enabled
+  AND (cast(:doc_ids as uuid[]) IS NULL OR c.document_id = ANY(cast(:doc_ids as uuid[])))
+  AND (cast(:scope as uuid[]) IS NULL OR c.id = ANY(cast(:scope as uuid[])))
+  AND c.content_search % :q
+"""
+
+_ORDER = """
+ORDER BY keyword_score DESC, c.id
 LIMIT :k
 """
 
 
-async def search(query: str, kb_ids: list[str], doc_ids: list[str] | None,
-                 scope: list[str] | None, top_k: int) -> list[dict]:
-    """全文检索：pg_trgm 相似度，返回带 score 的 chunks（按相似度降序）。
+def _hit(row) -> dict:
+    return {
+        "id": str(row["id"]),
+        "document_id": str(row["document_id"]),
+        "document_name": row["document_name"],
+        "content": row["content"],
+        "clause_title": row["clause_title"],
+        "section_path": row["section_path"],
+        "page_number": row["page_number"],
+        "metadata": row["metadata"] or {},
+        "char_count": row["char_count"],
+        "embedding_model": row["embedding_model"],
+        "vector_score": None,
+        "keyword_score": float(row["keyword_score"]),
+    }
 
-    Args:
-        query: 查询文本。
-        kb_ids: 限定的知识库 id 列表。
-        doc_ids: 限定的文档 id 列表（None 表示不限）。
-        scope: 缩域 chunk id 列表（None 表示不限）。
-        top_k: 返回条数上限。
 
-    Returns:
-        命中 chunk 字典列表（含 score）。
-    """
+async def search(
+    query: str,
+    kb_ids: list[str],
+    doc_ids: list[str] | None,
+    scope: list[str] | None,
+    top_k: int,
+    metadata_filter: MetadataFilter | None = None,
+) -> list[dict]:
+    """Return enabled trigram matches with metadata predicates applied."""
     async with async_session() as s:
-        rows = (await s.execute(text(_SQL), {
-            "q": query, "kb_ids": kb_ids, "doc_ids": doc_ids, "scope": scope, "k": top_k,
-        })).mappings().all()
-    return [dict(r) for r in rows]
+        predicates, predicate_params = await build_predicates_for_kbs(
+            s, kb_ids, metadata_filter
+        )
+        sql = _SQL
+        if predicates:
+            sql += " AND " + " AND ".join(predicates)
+        sql += _ORDER
+        rows = (
+            await s.execute(
+                text(sql),
+                {
+                    "q": query,
+                    "kb_ids": kb_ids,
+                    "doc_ids": doc_ids,
+                    "scope": scope,
+                    "k": top_k,
+                    **predicate_params,
+                },
+            )
+        ).mappings().all()
+    return [_hit(row) for row in rows]

@@ -204,6 +204,14 @@ async def list_fields(kb_id, user_id, scope: str | None = None) -> list[KbMetada
         return (await session.execute(query)).scalars().all()
 
 
+async def require_owned_kbs(kb_ids, user_id) -> None:
+    """Require read access to every supplied knowledge base."""
+    user_uuid = _uuid(user_id, "用户 ID")
+    async with async_session() as session:
+        for kb_id in dict.fromkeys(kb_ids):
+            await _require_kb(session, kb_id, user_uuid)
+
+
 async def create_field(
     *,
     kb_id,
