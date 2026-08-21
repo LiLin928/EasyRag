@@ -106,3 +106,11 @@ class RetrievalSettingsOut(BaseModel):
     embedding_model: dict | None
     rerank_model: dict | None
     rebuild_required: bool
+
+
+class ReembedRequest(BaseModel):
+    """Chunk reindex request scoped to one owned knowledge base."""
+
+    kb_id: str
+    document_ids: list[str] = []
+    chunk_ids: list[str] = []

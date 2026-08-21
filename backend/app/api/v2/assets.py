@@ -1,5 +1,6 @@
 """Document and chunk asset routes."""
 import json
+import uuid
 from json import JSONDecodeError
 from typing import Literal
 
@@ -17,6 +18,7 @@ from app.exceptions import BizException, ErrorCode
 from app.models.document import Document, ParseTask
 from app.models.knowledge_base import KnowledgeBase
 from app.providers.storage.factory import get_storage
+from app.schemas.knowledge import ReembedRequest
 from app.services import asset_service
 
 
@@ -50,6 +52,13 @@ def _metadata_filter(raw: str | None) -> dict | None:
     if not isinstance(value, dict):
         raise BizException(ErrorCode.PARAM_ERROR, "元数据筛选必须是对象")
     return value
+
+
+def _validate_uuid(value: str, label: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError) as exc:
+        raise BizException(ErrorCode.PARAM_ERROR, f"无效的{label}") from exc
 
 
 @router.post("/documents/upload")
@@ -213,6 +222,36 @@ async def list_chunks(
             "total": total,
         }
     )
+
+
+@router.post("/chunks/reembed")
+async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
+    kb_uuid = _validate_uuid(body.kb_id, "知识库 ID")
+    for document_id in body.document_ids:
+        _validate_uuid(document_id, "文档 ID")
+    for chunk_id in body.chunk_ids:
+        _validate_uuid(chunk_id, "分块 ID")
+
+    async with async_session() as session:
+        kb = (
+            await session.execute(
+                select(KnowledgeBase).where(
+                    KnowledgeBase.id == kb_uuid,
+                    KnowledgeBase.user_id == me.id,
+                )
+            )
+        ).scalar_one_or_none()
+    if not kb:
+        raise BizException(ErrorCode.FORBIDDEN, "无权访问该知识库")
+
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    await pool.enqueue_job(
+        "reembed_chunks_task",
+        body.kb_id,
+        body.document_ids,
+        body.chunk_ids,
+    )
+    return ok({"queued": True})
 
 
 @router.patch("/chunks/{chunk_id}/metadata")
