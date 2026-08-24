@@ -9,7 +9,7 @@ import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'a
 // @ts-ignore - 该深路径未随包提供类型声明，见 vite-env.d.ts 中的模块声明
 import xhrAdapter from 'axios/lib/adapters/xhr.js'
 import { mockLoginResponse, mockRefreshResponse, mockUserInfoResponse } from './auth'
-import { mockKnowledgeBases, mockDocuments, mockTree, mockElements, mockParseTask } from './knowledge'
+import { handleKnowledgeMock, mockTree, mockElements, mockParseTask } from './knowledge'
 import { mockConversations, mockMessages, mockScenes } from './chat'
 import { handleWorkflowMock } from './workflow'
 import { mockTools, createMockTestResult } from './tool'
@@ -18,23 +18,49 @@ import { mockMcps, createMockTestResult as createMcpTestResult } from './mcp'
 import type { Tool } from '@/types/tool'
 import type { Skill } from '@/types/skill'
 import type { Mcp } from '@/types/mcp'
+import type { ParseTask } from '@/types/knowledge'
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 // Mock 数据存储（供其它模块读写共享状态）
-export const mockData: Record<string, any> = {}
+export const mockData: Record<string, unknown> = {}
 
 // 解析请求体（兼容 axios transformRequest 后的字符串与原始对象）
-function parseRequestData(raw: unknown): Record<string, any> {
+function parseRequestData(raw: unknown): Record<string, unknown> {
   if (!raw) return {}
   if (typeof raw === 'string') {
     try {
-      return JSON.parse(raw)
+      const parsed: unknown = JSON.parse(raw)
+      return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {}
     } catch {
       return {}
     }
   }
-  return raw as Record<string, any>
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {}
+}
+
+function requestString(data: Record<string, unknown>, key: string, fallback = ''): string {
+  const value = data[key]
+  return typeof value === 'string' && value ? value : fallback
+}
+
+function requestNumber(data: Record<string, unknown>, key: string, fallback: number): number {
+  const value = data[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function requestBoolean(data: Record<string, unknown>, key: string, fallback: boolean): boolean {
+  const value = data[key]
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function requestList<T>(data: Record<string, unknown>, key: string): T[] {
+  const value = data[key]
+  return Array.isArray(value) ? (value as T[]) : []
 }
 
 // 成功响应体的统一封装
@@ -43,10 +69,25 @@ function ok(data: unknown) {
 }
 
 // 根据请求配置匹配 mock 路由，返回完整响应体（{ code, message, data }）；未命中返回 null
+function withParams(url: string, params: unknown): string {
+  if (!params || typeof params !== 'object' || Array.isArray(params)) return url
+  const entries = Object.entries(params as Record<string, unknown>).filter(([, value]) => value !== undefined && value !== null)
+  if (!entries.length) return url
+  const query = entries.map(([key, value]) => {
+    const serialized = typeof value === 'object' ? JSON.stringify(value) : String(value)
+    return `${encodeURIComponent(key)}=${encodeURIComponent(serialized)}`
+  }).join('&')
+  return url.includes('?') ? `${url}&${query}` : `${url}?${query}`
+}
+
 function matchMock(config: InternalAxiosRequestConfig): unknown | null {
   const url = config.url || ''
   const method = config.method?.toUpperCase() || 'GET'
   const requestData = parseRequestData(config.data)
+  const knowledgeMock = handleKnowledgeMock(withParams(url, config.params), method, requestData)
+  if (knowledgeMock !== null) {
+    return knowledgeMock
+  }
 
   // ========== 认证相关 ==========
   if (url.includes('/auth/login') && method === 'POST') {
@@ -59,29 +100,14 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
     return mockUserInfoResponse
   }
 
-  // ========== 知识库相关 ==========
-  if (url.includes('/knowledge') && !url.includes('/documents') && !url.includes('/chat')) {
-    if (method === 'GET') {
-      return ok(mockKnowledgeBases)
-    }
-  } else if (
-    url.includes('/documents') &&
-    !url.includes('/tree') &&
-    !url.includes('/elements') &&
-    !url.includes('/chat')
-  ) {
-    if (method === 'GET') {
-      const kbId = url.match(/kb_id=([^&]+)/)?.[1] || 'kb1'
-      const docs = mockDocuments.filter(d => d.kbId === kbId)
-      return ok({ list: docs, total: docs.length })
-    }
-  } else if (url.includes('/documents/') && url.includes('/tree')) {
+  // ========== 结构树与解析任务 ==========
+  if (url.includes('/documents/') && url.includes('/tree')) {
     return ok(mockTree)
   } else if (url.includes('/documents/') && url.includes('/elements')) {
     return ok({ list: mockElements, total: mockElements.length })
   } else if (url.includes('/parse-tasks/')) {
     // 模拟解析进度递增
-    const task = { ...mockParseTask }
+    const task: ParseTask = { ...mockParseTask }
     task.pct = Math.min(100, task.pct + Math.random() * 20)
     if (task.pct >= 100) {
       task.status = 'done'
@@ -126,13 +152,15 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
       // POST /tools - 创建工具
       const newTool: Tool = {
         id: 'tool' + Date.now(),
-        name: requestData.name || '',
-        type: requestData.type || 'HTTP',
-        desc: requestData.desc || '',
-        sig: requestData.sig || '',
-        enabled: requestData.enabled !== false,
-        params: requestData.params || [],
-        auth: requestData.auth || { mode: 'none', key: '' },
+        name: requestString(requestData, 'name'),
+        type: requestString(requestData, 'type', 'HTTP') as Tool['type'],
+        desc: requestString(requestData, 'desc'),
+        sig: requestString(requestData, 'sig'),
+        enabled: requestBoolean(requestData, 'enabled', true),
+        params: requestList<Tool['params'][number]>(requestData, 'params'),
+        auth: (requestData.auth instanceof Object && 'mode' in requestData.auth
+          ? requestData.auth
+          : { mode: 'none', key: '' }) as Tool['auth'],
         createdAt: new Date().toISOString()
       }
       mockTools.push(newTool)
@@ -190,19 +218,19 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
       // POST /skills - 创建技能
       const newSkill: Skill = {
         id: 'skill' + Date.now(),
-        ico: requestData.ico || '🔧',
-        name: requestData.name || '',
+        ico: requestString(requestData, 'ico', '🔧'),
+        name: requestString(requestData, 'name'),
         scope: 'custom',
         ver: '1.0.0',
-        desc: requestData.desc || '',
-        trigger: requestData.trigger || '',
-        prompt: requestData.prompt || '',
-        tools: requestData.tools || [],
-        docs: requestData.docs || [],
-        wfs: requestData.wfs || [],
-        examples: requestData.examples || [],
-        scripts: requestData.scripts || [],
-        budget: requestData.budget,
+        desc: requestString(requestData, 'desc'),
+        trigger: requestString(requestData, 'trigger'),
+        prompt: requestString(requestData, 'prompt'),
+        tools: requestList<Skill['tools'][number]>(requestData, 'tools'),
+        docs: requestList<Skill['docs'][number]>(requestData, 'docs'),
+        wfs: requestList<Skill['wfs'][number]>(requestData, 'wfs'),
+        examples: requestList<Skill['examples'][number]>(requestData, 'examples'),
+        scripts: requestList<Skill['scripts'][number]>(requestData, 'scripts'),
+        budget: requestNumber(requestData, 'budget', 100),
         used: 0
       }
       mockSkills.push(newSkill)
@@ -275,13 +303,13 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
       // POST /mcps - 创建 MCP 服务
       const newMcp: Mcp = {
         id: 'mcp' + Date.now(),
-        name: requestData.name || '',
-        tp: requestData.tp || 'stdio',
-        cmd: requestData.cmd || '',
+        name: requestString(requestData, 'name'),
+        tp: requestString(requestData, 'tp', 'stdio') as Mcp['tp'],
+        cmd: requestString(requestData, 'cmd'),
         status: 'off',
         toolCount: 0,
-        env: requestData.env || [],
-        timeout: requestData.timeout || 30,
+        env: requestList<Mcp['env'][number]>(requestData, 'env'),
+        timeout: requestNumber(requestData, 'timeout', 30),
         createdAt: new Date().toISOString()
       }
       mockMcps.push(newMcp)
