@@ -1,6 +1,7 @@
 """Retrieval test set and case API integration tests."""
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -8,10 +9,18 @@ from sqlalchemy import delete, select
 
 from app.api.v2 import retrieval_testing
 from app.db.session import async_session
+from app.exceptions import BizException, ErrorCode
 from app.main import app
 from app.models.document import Document
 from app.models.knowledge_base import KnowledgeBase
-from app.models.retrieval_testing import RetrievalTestCase, RetrievalTestSet
+from app.models.metadata import KbMetadataField
+from app.models.model_config import ModelConfig
+from app.models.retrieval_testing import (
+    RetrievalTestCase,
+    RetrievalTestCaseResult,
+    RetrievalTestRun,
+    RetrievalTestSet,
+)
 from app.models.user import User
 from app.security.jwt import create_access_token
 
@@ -370,6 +379,271 @@ async def test_run_history_is_initially_empty():
         await _cleanup(seed)
 
 
+@pytest.mark.asyncio
+async def test_start_run_creates_snapshot_and_results(monkeypatch):
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed()
+    async with async_session() as session:
+        embed = ModelConfig(
+            grp="embed",
+            name=f"rt-embed-{suffix}",
+            prov="openai",
+            use="retrieval",
+            url="http://embedding.invalid",
+            api_key_enc="secret",
+            params={"dim": 1024},
+            enabled=True,
+        )
+        rerank = ModelConfig(
+            grp="rerank",
+            name=f"rt-rerank-{suffix}",
+            prov="openai",
+            use="rerank",
+            url="http://rerank.invalid",
+            api_key_enc="secret",
+            params={},
+            enabled=True,
+        )
+        session.add_all([embed, rerank])
+        await session.flush()
+        kb = await session.get(KnowledgeBase, seed.kb_id)
+        kb.embedding_model_id = embed.id
+        kb.rerank_model_id = rerank.id
+        session.add_all(
+            [
+                KbMetadataField(
+                    kb_id=kb.id,
+                    key="source",
+                    name="Source",
+                    scope="document",
+                    data_type="select",
+                    options=["招标文件"],
+                    retrieval_filterable=True,
+                ),
+                KbMetadataField(
+                    kb_id=kb.id,
+                    key="effective_status",
+                    name="Status",
+                    scope="chunk",
+                    data_type="select",
+                    options=["现行有效"],
+                    retrieval_filterable=True,
+                ),
+            ]
+        )
+        await session.commit()
+
+    fake_pool = AsyncMock()
+    monkeypatch.setattr(
+        "app.api.v2.retrieval_testing.create_pool",
+        AsyncMock(return_value=fake_pool),
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as client:
+            response = await client.post(
+                f"/api/v2/knowledge/{seed.kb_id}/retrieval-test-sets",
+                headers=_headers(seed),
+                json={"name": "Async regression"},
+            )
+            set_id = response.json()["data"]["id"]
+            for query, expected in [
+                ("liability cap", [str(seed.document_id)]),
+                ("termination", ["00000000-0000-0000-0000-000000000099"]),
+            ]:
+                response = await client.post(
+                    f"/api/v2/retrieval-test-sets/{set_id}/cases",
+                    headers=_headers(seed),
+                    json={"query": query, "expected_doc_ids": expected},
+                )
+                assert response.json()["code"] == 0
+
+            response = await client.post(
+                f"/api/v2/retrieval-test-sets/{set_id}/runs",
+                headers=_headers(seed),
+                json={
+                    "case_ids": [],
+                    "ks": [3, 5],
+                    "override_config": {"vector_top_k": 9},
+                    "document_metadata": {"source": ["招标文件"]},
+                    "chunk_metadata": {"effective_status": ["现行有效"]},
+                },
+            )
+            body = response.json()
+            assert body["code"] == 0
+            assert body["data"]["status"] == "pending"
+            assert body["data"]["total_cases"] == 2
+            assert (
+                body["data"]["config_snapshot"]["settings"]["resolved"]["vector_top_k"]
+                == 9
+            )
+            assert body["data"]["config_snapshot"]["document_metadata"]["source"] == [
+                "招标文件"
+            ]
+            assert body["data"]["config_snapshot"]["embedding_model"] == {
+                "id": body["data"]["config_snapshot"]["embedding_model"]["id"],
+                "name": f"rt-embed-{suffix}",
+                "prov": "openai",
+                "dim": 1024,
+            }
+            assert "url" not in str(body["data"]["config_snapshot"])
+            assert "api_key" not in str(body["data"]["config_snapshot"])
+            fake_pool.enqueue_job.assert_called_once_with(
+                "run_retrieval_test_task", body["data"]["id"]
+            )
+
+            response = await client.post(
+                f"/api/v2/retrieval-test-sets/{set_id}/runs",
+                headers=_headers(seed),
+                json={},
+            )
+            assert response.json()["code"] == 0
+            assert response.json()["data"]["id"] == body["data"]["id"]
+            fake_pool.enqueue_job.assert_called_once()
+    finally:
+        async with async_session() as session:
+            run_ids = (
+                await session.execute(
+                    select(RetrievalTestRun.id).where(
+                        RetrievalTestRun.kb_id == seed.kb_id
+                    )
+                )
+            ).scalars().all()
+            if run_ids:
+                await session.execute(
+                    delete(RetrievalTestCaseResult).where(
+                        RetrievalTestCaseResult.run_id.in_(run_ids)
+                    )
+                )
+                await session.execute(
+                    delete(RetrievalTestRun).where(RetrievalTestRun.id.in_(run_ids))
+                )
+            await session.execute(
+                delete(ModelConfig).where(
+                    ModelConfig.name.in_([f"rt-embed-{suffix}", f"rt-rerank-{suffix}"])
+                )
+            )
+            await session.commit()
+        await _cleanup(seed)
+
+
+@pytest.mark.asyncio
+async def test_run_validation_rules(monkeypatch):
+    seed = await _seed()
+    monkeypatch.setattr(
+        "app.api.v2.retrieval_testing.create_pool", AsyncMock(return_value=AsyncMock())
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as client:
+            response = await client.post(
+                f"/api/v2/knowledge/{seed.kb_id}/retrieval-test-sets",
+                headers=_headers(seed),
+                json={"name": "Validation runs"},
+            )
+            set_id = response.json()["data"]["id"]
+            for payload in (
+                {},
+                {"ks": []},
+                {"ks": [3, 3]},
+                {"ks": [3, "5"]},
+                {"ks": [101]},
+                {"override_config": {"unknown": 1}},
+            ):
+                response = await client.post(
+                    f"/api/v2/retrieval-test-sets/{set_id}/runs",
+                    headers=_headers(seed),
+                    json=payload,
+                )
+                assert response.json()["code"] == 40001
+    finally:
+        await _cleanup(seed)
+
+
+@pytest.mark.asyncio
+async def test_run_routes_use_service_ownership_and_hide_pending_internals(
+    monkeypatch,
+):
+    owner_id = uuid.uuid4()
+    other_id = uuid.uuid4()
+    run_id = uuid.uuid4()
+    forbidden = BizException(ErrorCode.FORBIDDEN, "Retrieval test run not accessible")
+    run = SimpleNamespace(id=str(run_id), status="running")
+    result = SimpleNamespace(id=str(uuid.uuid4()), status="running")
+
+    monkeypatch.setattr(
+        retrieval_testing.service,
+        "get_run",
+        AsyncMock(side_effect=forbidden),
+    )
+    monkeypatch.setattr(
+        retrieval_testing.service,
+        "list_run_cases",
+        AsyncMock(side_effect=forbidden),
+    )
+    monkeypatch.setattr(
+        retrieval_testing.service,
+        "cancel_run",
+        AsyncMock(side_effect=forbidden),
+    )
+    monkeypatch.setattr(
+        retrieval_testing.service,
+        "test_run_output",
+        lambda item: {"id": item.id, "status": item.status},
+    )
+    monkeypatch.setattr(
+        retrieval_testing.service,
+        "test_case_result_output",
+        lambda item: {"id": item.id, "status": item.status},
+    )
+
+    app.dependency_overrides[retrieval_testing.get_current_user] = lambda: SimpleNamespace(
+        id=other_id
+    )
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as client:
+            responses = [
+                await client.get(f"/api/v2/retrieval-test-runs/{run_id}"),
+                await client.get(f"/api/v2/retrieval-test-runs/{run_id}/cases"),
+                await client.post(f"/api/v2/retrieval-test-runs/{run_id}/cancel"),
+            ]
+        assert [item.json()["code"] for item in responses] == [40300, 40300, 40300]
+        assert all(item.json()["data"] is None for item in responses)
+
+        monkeypatch.setattr(
+            retrieval_testing.service, "get_run", AsyncMock(return_value=run)
+        )
+        monkeypatch.setattr(
+            retrieval_testing.service,
+            "list_run_cases",
+            AsyncMock(return_value=([result], 1)),
+        )
+        monkeypatch.setattr(
+            retrieval_testing.service, "cancel_run", AsyncMock(return_value=run)
+        )
+        app.dependency_overrides[retrieval_testing.get_current_user] = (
+            lambda: SimpleNamespace(id=owner_id)
+        )
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://t"
+        ) as client:
+            read = await client.get(f"/api/v2/retrieval-test-runs/{run_id}")
+            cases = await client.get(f"/api/v2/retrieval-test-runs/{run_id}/cases")
+            cancel = await client.post(f"/api/v2/retrieval-test-runs/{run_id}/cancel")
+        assert read.json()["data"] == {"id": str(run_id), "status": "running"}
+        assert cases.json()["data"] == {
+            "list": [{"id": result.id, "status": "running"}],
+            "total": 1,
+        }
+        assert cancel.json()["data"] == {"id": str(run_id), "status": "running"}
+    finally:
+        app.dependency_overrides.pop(retrieval_testing.get_current_user, None)
+
+
 def test_retrieval_testing_routes_are_registered_without_database():
     included = any(
         getattr(route, "original_router", None) is retrieval_testing.router
@@ -384,5 +658,20 @@ def test_retrieval_testing_routes_are_registered_without_database():
         "/retrieval-test-cases/{case_id}",
         "/retrieval-test-cases/batch-status",
         "/retrieval-test-sets/{set_id}/runs",
+        "/retrieval-test-runs/{run_id}",
+        "/retrieval-test-runs/{run_id}/cases",
+        "/retrieval-test-runs/{run_id}/cancel",
     }
     assert expected <= paths
+
+
+def test_retrieval_worker_registers_async_run_task():
+    from app.worker.app import WorkerSettings, run_retrieval_test_task
+
+    assert run_retrieval_test_task in WorkerSettings.functions
+
+
+def test_retrieval_run_create_preserves_invalid_ks_for_service_validation():
+    body = retrieval_testing.RetrievalRunCreate(ks=[3, "5"])
+
+    assert body.ks == [3, "5"]

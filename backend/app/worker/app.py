@@ -22,6 +22,7 @@ from app.providers.langchain_factory import (
     get_model_by_id,
 )
 from app.providers.storage.factory import get_storage
+from app.services.retrieval_test_service import execute_run
 from app.services.settings_service import get_default_model
 
 
@@ -223,10 +224,19 @@ async def reembed_chunks_task(
             await session.commit()
 
 
+async def run_retrieval_test_task(ctx, run_id: str):
+    """ARQ task: execute one persisted retrieval regression run."""
+    await execute_run(run_id)
+
+
 class WorkerSettings:
     """ARQ WorkerSettings。"""
 
-    functions = [parse_document_task, reembed_chunks_task]
+    functions = [
+        parse_document_task,
+        reembed_chunks_task,
+        run_retrieval_test_task,
+    ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = startup
     max_jobs = 4

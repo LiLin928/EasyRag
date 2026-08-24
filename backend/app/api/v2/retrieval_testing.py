@@ -1,8 +1,14 @@
 """Saved retrieval test set and case routes."""
+from typing import Any
+
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from app.api.deps import get_current_user
 from app.api.response import ok
+from app.config import settings
 from app.schemas.retrieval_testing import (
     RetrievalTestCaseCreate,
     RetrievalTestCaseUpdate,
@@ -14,6 +20,15 @@ from app.services import retrieval_test_service as service
 
 
 router = APIRouter(tags=["retrieval-testing"])
+
+
+class RetrievalRunCreate(BaseModel):
+    case_ids: list[str] = []
+    # Keep raw values so invalid Ks receive the unified business error envelope.
+    ks: list[Any] = [3, 5, 10]
+    override_config: dict = {}
+    document_metadata: dict = {}
+    chunk_metadata: dict = {}
 
 
 @router.get("/knowledge/{kb_id}/retrieval-test-sets")
@@ -111,3 +126,43 @@ async def list_runs(set_id: str, me=Depends(get_current_user)):
     return ok(
         {"list": [service.test_run_output(item) for item in runs], "total": total}
     )
+
+
+@router.post("/retrieval-test-sets/{set_id}/runs")
+async def start_run(set_id: str, body: RetrievalRunCreate, me=Depends(get_current_user)):
+    run = await service.start_run(
+        test_set_id=set_id,
+        user_id=me.id,
+        case_ids=body.case_ids,
+        ks=body.ks,
+        override_config=body.override_config,
+        document_metadata=body.document_metadata,
+        chunk_metadata=body.chunk_metadata,
+    )
+    if getattr(run, "_newly_created", False):
+        pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        await pool.enqueue_job("run_retrieval_test_task", str(run.id))
+    return ok(service.test_run_output(run))
+
+
+@router.get("/retrieval-test-runs/{run_id}")
+async def get_run(run_id: str, me=Depends(get_current_user)):
+    run = await service.get_run(run_id, me.id)
+    return ok(service.test_run_output(run))
+
+
+@router.get("/retrieval-test-runs/{run_id}/cases")
+async def list_run_cases(run_id: str, me=Depends(get_current_user)):
+    results, total = await service.list_run_cases(run_id, me.id)
+    return ok(
+        {
+            "list": [service.test_case_result_output(item) for item in results],
+            "total": total,
+        }
+    )
+
+
+@router.post("/retrieval-test-runs/{run_id}/cancel")
+async def cancel_run(run_id: str, me=Depends(get_current_user)):
+    run = await service.cancel_run(run_id, me.id)
+    return ok(service.test_run_output(run))
