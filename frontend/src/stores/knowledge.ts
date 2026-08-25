@@ -63,11 +63,20 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // ========== 上传队列 ==========
   const uploadQueue = ref<ParseTask[]>([])
+  const activeKbId = ref('')
 
   let runPollTimer: ReturnType<typeof setInterval> | null = null
+  const parsePollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let parsePollEpoch = 0
+  let kbRequestEpoch = 0
 
   function isTerminalRun(run: RetrievalTestRun | null): boolean {
     return run?.status === 'completed' || run?.status === 'failed' || run?.status === 'canceled'
+  }
+
+  function isKbResponseCurrent(kbId: string, requestEpoch: number): boolean {
+    if (requestEpoch !== kbRequestEpoch) return false
+    return activeKbId.value === '' || activeKbId.value === kbId
   }
 
   function stopRunPolling(): void {
@@ -115,7 +124,10 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   async function loadKbDetail(id: string): Promise<void> {
-    currentKb.value = await kbApi.getKbDetail(id)
+    const requestEpoch = kbRequestEpoch
+    const kb = await kbApi.getKbDetail(id)
+    if (!isKbResponseCurrent(id, requestEpoch)) return
+    currentKb.value = kb
   }
 
   // ========== 文档操作 ==========
@@ -125,6 +137,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     pageSize = 20,
     filter: Filter = {}
   ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     docLoading.value = true
     documentFilter.value = filter
     try {
@@ -134,10 +147,11 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         page,
         page_size: pageSize
       })
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
       docList.value = result.list
       docTotal.value = result.total
     } finally {
-      docLoading.value = false
+      if (requestEpoch === kbRequestEpoch) docLoading.value = false
     }
   }
 
@@ -169,24 +183,32 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     return tasks
   }
 
-  async function deleteDocument(id: string): Promise<void> {
+  async function deleteDocument(kbId: string, id: string): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     await kbApi.deleteDocument(id)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     docList.value = docList.value.filter((item) => item.id !== id)
     docTotal.value = Math.max(0, docTotal.value - 1)
   }
 
   // ========== 解析任务轮询 ==========
   function startPolling(taskId: string, onComplete?: () => void): void {
+    const pollEpoch = parsePollEpoch
     const poll = async (): Promise<void> => {
       try {
         const task = await kbApi.getParseTask(taskId)
+        if (pollEpoch !== parsePollEpoch) return
         const index = uploadQueue.value.findIndex((item) => item.task_id === taskId)
         if (index > -1) uploadQueue.value[index] = task
         if (task.status === 'done' || task.status === 'failed') {
           onComplete?.()
           return
         }
-        setTimeout(poll, 2000)
+        const timer = setTimeout(() => {
+          parsePollTimers.delete(taskId)
+          void poll()
+        }, 2000)
+        parsePollTimers.set(taskId, timer)
       } catch (error) {
         console.error('Poll task error:', error)
       }
@@ -197,7 +219,27 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // ========== 元数据 Schema ==========
   async function loadMetadataFields(kbId: string, scope?: MetadataScope): Promise<void> {
-    metadataFields.value = await kbApi.getMetadataFields(kbId, scope)
+    const requestEpoch = kbRequestEpoch
+    const fields = await kbApi.getMetadataFields(kbId, scope)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    metadataFields.value = fields
+  }
+
+  async function reorderMetadataFields(kbId: string, ids: string[]): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    await kbApi.reorderMetadataFields(kbId, ids)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    const ordered = ids
+      .map((id, index) => ({ id, index }))
+      .reduce<Map<string, number>>((map, item) => {
+        map.set(item.id, item.index)
+        return map
+      }, new Map<string, number>())
+    metadataFields.value = metadataFields.value
+      .map((field) =>
+        ordered.has(field.id) ? { ...field, sort_order: ordered.get(field.id) as number } : field
+      )
+      .sort((a, b) => a.sort_order - b.sort_order)
   }
 
   async function saveMetadataField(
@@ -205,12 +247,28 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     payload: MetadataFieldPayload,
     id?: string
   ): Promise<MetadataField> {
+    const requestEpoch = kbRequestEpoch
     const field = id
       ? await kbApi.updateMetadataField(kbId, id, payload)
       : await kbApi.createMetadataField(kbId, payload)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return field
     const index = metadataFields.value.findIndex((item) => item.id === field.id)
     if (index > -1) metadataFields.value[index] = field
     else metadataFields.value.push(field)
+    return field
+  }
+
+  async function updateMetadataField(
+    kbId: string,
+    id: string,
+    payload: Partial<MetadataField>
+  ): Promise<MetadataField> {
+    const requestEpoch = kbRequestEpoch
+    const field = await kbApi.updateMetadataField(kbId, id, payload)
+    if (isKbResponseCurrent(kbId, requestEpoch)) {
+      const index = metadataFields.value.findIndex((item) => item.id === field.id)
+      if (index > -1) metadataFields.value[index] = field
+    }
     return field
   }
 
@@ -219,31 +277,42 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     id: string,
     force: boolean
   ): Promise<{ success: boolean; affected_count: number }> {
+    const requestEpoch = kbRequestEpoch
     const impact = await kbApi.deleteMetadataField(kbId, id, force)
-    if (impact.success) {
+    if (impact.success && isKbResponseCurrent(kbId, requestEpoch)) {
       metadataFields.value = metadataFields.value.filter((item) => item.id !== id)
     }
     return impact
   }
 
   async function saveDocumentMetadata(
+    kbId: string,
     ids: string[],
     metadata: Filter
   ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     if (ids.length === 1) {
       const document = await kbApi.updateDocumentMetadata(ids[0], metadata)
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
       const index = docList.value.findIndex((item) => item.id === document.id)
       if (index > -1) docList.value[index] = document
       return
     }
     await kbApi.batchUpdateDocumentMetadata(ids, metadata)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     docList.value = docList.value.map((item) =>
       ids.includes(item.id) ? { ...item, metadata: { ...item.metadata, ...metadata } } : item
     )
   }
 
-  async function setDocumentEnabled(ids: string[], enabled: boolean): Promise<void> {
+  async function setDocumentEnabled(
+    kbId: string,
+    ids: string[],
+    enabled: boolean
+  ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     await kbApi.updateDocumentStatus(ids, enabled)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     docList.value = docList.value.map((item) =>
       ids.includes(item.id) ? { ...item, enabled } : item
     )
@@ -251,32 +320,39 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // ========== 分段操作 ==========
   async function loadChunks(kbId: string, filter: Filter = {}): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     chunkLoading.value = true
     chunkFilter.value = filter
     try {
       const result = await kbApi.getChunkList({ ...filter, kb_id: kbId })
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
       chunkList.value = result.list
       chunkTotal.value = result.total
     } finally {
-      chunkLoading.value = false
+      if (requestEpoch === kbRequestEpoch) chunkLoading.value = false
     }
   }
 
-  async function saveChunkMetadata(ids: string[], metadata: Filter): Promise<void> {
+  async function saveChunkMetadata(kbId: string, ids: string[], metadata: Filter): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     if (ids.length === 1) {
       const chunk = await kbApi.updateChunkMetadata(ids[0], metadata)
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
       const index = chunkList.value.findIndex((item) => item.id === chunk.id)
       if (index > -1) chunkList.value[index] = chunk
       return
     }
     await kbApi.batchUpdateChunkMetadata(ids, metadata)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     chunkList.value = chunkList.value.map((item) =>
       ids.includes(item.id) ? { ...item, metadata: { ...item.metadata, ...metadata } } : item
     )
   }
 
-  async function setChunkEnabled(ids: string[], enabled: boolean): Promise<void> {
+  async function setChunkEnabled(kbId: string, ids: string[], enabled: boolean): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     await kbApi.updateChunkStatus(ids, enabled)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     chunkList.value = chunkList.value.map((item) =>
       ids.includes(item.id) ? { ...item, enabled } : item
     )
@@ -292,15 +368,19 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // ========== 检索配置 ==========
   async function loadRetrievalSettings(kbId: string): Promise<void> {
-    retrievalSettings.value = await kbApi.getRetrievalSettings(kbId)
+    const requestEpoch = kbRequestEpoch
+    const settings = await kbApi.getRetrievalSettings(kbId)
+    if (isKbResponseCurrent(kbId, requestEpoch)) retrievalSettings.value = settings
   }
 
   async function saveRetrievalSettings(
     kbId: string,
     payload: RetrievalSettingsPayload
   ): Promise<RetrievalSettings> {
-    retrievalSettings.value = await kbApi.saveRetrievalSettings(kbId, payload)
-    return retrievalSettings.value
+    const requestEpoch = kbRequestEpoch
+    const settings = await kbApi.saveRetrievalSettings(kbId, payload)
+    if (isKbResponseCurrent(kbId, requestEpoch)) retrievalSettings.value = settings
+    return settings
   }
 
   // ========== 召回测试集 ==========
@@ -421,13 +501,19 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   }
 
   // ========== 重置状态 ==========
-  function reset(): void {
+  function reset(nextKbId = ''): void {
     stopRunPolling()
+    kbRequestEpoch += 1
+    parsePollEpoch += 1
+    parsePollTimers.forEach((timer) => clearTimeout(timer))
+    parsePollTimers.clear()
+    activeKbId.value = nextKbId
     kbList.value = []
     currentKb.value = null
     docList.value = []
     currentDoc.value = null
     docTotal.value = 0
+    docLoading.value = false
     documentFilter.value = {}
     chunkList.value = []
     chunkTotal.value = 0
@@ -494,7 +580,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     // 元数据操作
     loadMetadataFields,
     saveMetadataField,
+    updateMetadataField,
     removeMetadataField,
+    reorderMetadataFields,
 
     // 分段操作
     loadChunks,

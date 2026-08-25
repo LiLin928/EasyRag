@@ -413,8 +413,14 @@ const defaultSettings: RetrievalSettings = {
     keyword_top_k: { value: 20, source: 'system_default' },
     vector_weight: { value: 0.7, source: 'system_default' },
     keyword_weight: { value: 0.3, source: 'system_default' },
+    similarity_threshold: { value: 0.3, source: 'system_default' },
+    rrf_k: { value: 60, source: 'system_default' },
     rerank_enabled: { value: true, source: 'system_default' },
     rerank_top_n: { value: 10, source: 'system_default' },
+    rerank_trigger_threshold: { value: 0.02, source: 'system_default' },
+    navigation_enabled: { value: true, source: 'system_default' },
+    nav_anchor_count: { value: 3, source: 'system_default' },
+    nav_confidence_threshold: { value: 0.15, source: 'system_default' },
   },
   resolved: {
     method: 'hybrid',
@@ -423,8 +429,14 @@ const defaultSettings: RetrievalSettings = {
     keyword_top_k: 20,
     vector_weight: 0.7,
     keyword_weight: 0.3,
+    similarity_threshold: 0.3,
+    rrf_k: 60,
     rerank_enabled: true,
     rerank_top_n: 10,
+    rerank_trigger_threshold: 0.02,
+    navigation_enabled: true,
+    nav_anchor_count: 3,
+    nav_confidence_threshold: 0.15,
   },
   embedding_model: {
     id: 'model-embedding',
@@ -434,6 +446,39 @@ const defaultSettings: RetrievalSettings = {
   },
   rerank_model: { id: 'model-rerank', name: 'BGE-Reranker', prov: 'local' },
   rebuild_required: false,
+}
+
+const retrievalSettingsByKb = new Map<string, RetrievalSettings>()
+
+function retrievalSettingsFor(kbId: string): RetrievalSettings {
+  const existing = retrievalSettingsByKb.get(kbId)
+  if (existing) return existing
+  const created = cloneJson(defaultSettings)
+  retrievalSettingsByKb.set(kbId, created)
+  return created
+}
+
+const embeddingModelCatalog: Record<string, NonNullable<RetrievalSettings['embedding_model']>> = {
+  'model-embedding': { id: 'model-embedding', name: 'BGE-M3', prov: 'local', params: { dim: 1024 } },
+  'model-embedding-1024-b': {
+    id: 'model-embedding-1024-b',
+    name: 'Qwen3-Embedding',
+    prov: 'local',
+    params: { dim: 1024 },
+  },
+}
+
+const rerankModelCatalog: Record<string, NonNullable<RetrievalSettings['rerank_model']>> = {
+  'model-rerank': { id: 'model-rerank', name: 'BGE-Reranker', prov: 'local' },
+  'model-rerank-b': { id: 'model-rerank-b', name: 'Qwen3-Reranker', prov: 'local' },
+}
+
+function embeddingModel(id: string): RetrievalSettings['embedding_model'] {
+  return embeddingModelCatalog[id] || null
+}
+
+function rerankModel(id: string): RetrievalSettings['rerank_model'] {
+  return rerankModelCatalog[id] || null
 }
 
 function cloneJson<T>(value: T): T {
@@ -461,16 +506,19 @@ function candidate(rank: number, chunkId: string, score: number): RetrievalCandi
 }
 
 function completedRun(): RetrievalTestRun {
+  const settings = retrievalSettingsFor('kb1')
   return {
     id: 'run-completed',
     test_set_id: 'set-active',
     kb_id: 'kb1',
     status: 'completed',
     config_snapshot: {
-      settings: cloneJson(defaultSettings),
+      settings: cloneJson(settings),
       ks: [3, 5],
-      embedding_model: { id: 'model-embedding', name: 'BGE-M3', prov: 'local', dim: 1024 },
-      rerank_model: { id: 'model-rerank', name: 'BGE-Reranker', prov: 'local' },
+      embedding_model: settings.embedding_model
+        ? { ...settings.embedding_model, dim: Number(settings.embedding_model.params.dim) }
+        : null,
+      rerank_model: settings.rerank_model ? { ...settings.rerank_model } : null,
       document_metadata: {},
       chunk_metadata: {},
     },
@@ -499,7 +547,7 @@ export const mockTestRuns: RetrievalTestRun[] = [
     kb_id: 'kb1',
     status: 'canceled',
     config_snapshot: {
-      settings: cloneJson(defaultSettings),
+      settings: cloneJson(retrievalSettingsFor('kb1')),
       ks: [3],
       embedding_model: null,
       rerank_model: null,
@@ -840,6 +888,25 @@ export function handleKnowledgeMock(
 
   let match: RegExpMatchArray | null
 
+  // Atomic reorder must be matched before the field-id route.
+  match = path.match(/^\/knowledge\/([^/]+)\/metadata-fields\/reorder$/)
+  if (match && upperMethod === 'PUT') {
+    const kbId = match[1]
+    if (!mockKbs.some((item) => item.id === kbId)) return notFound('知识库不存在')
+    if (!Array.isArray(data.ids) || data.ids.some((id) => typeof id !== 'string')) {
+      return invalid('字段排序 ID 必须是字符串列表')
+    }
+    const ids = data.ids
+    if (ids.length !== new Set(ids).size) return invalid('字段排序 ID 不能重复')
+    const rows = ids.map((id) => mockMetadataFields.find((item) => item.id === id && item.kb_id === kbId))
+    if (rows.some((item) => !item)) return notFound('部分排序字段不存在')
+    ids.forEach((id, index) => {
+      const fieldDefinition = mockMetadataFields.find((item) => item.id === id)
+      if (fieldDefinition) fieldDefinition.sort_order = index
+    })
+    return ok({ success: true })
+  }
+
   // Metadata fields are matched before every broad /knowledge route.
   match = path.match(/^\/knowledge\/([^/]+)\/metadata-fields(?:\/([^/]+))?$/)
   if (match) {
@@ -895,15 +962,44 @@ export function handleKnowledgeMock(
   if (match) {
     const kbId = match[1]
     if (!mockKbs.some((item) => item.id === kbId)) return notFound('知识库不存在')
-    if (upperMethod === 'GET') return ok(defaultSettings)
+    const settings = retrievalSettingsFor(kbId)
+    if (upperMethod === 'GET') return ok(settings)
     if (upperMethod === 'PUT') {
-      const config = isRecord(data.retrieval_config) ? data.retrieval_config : {}
-      for (const [key, value] of Object.entries(config)) {
-        if (!(key in defaultSettings.resolved)) return invalid(`未知检索配置: ${key}`)
-        defaultSettings.values[key] = { value: value as string | number | boolean, source: 'override' }
-        defaultSettings.resolved[key] = value as string | number | boolean
+      if ('embedding_model_id' in data) {
+        const requested = data.embedding_model_id
+        if (requested !== null && typeof requested !== 'string') {
+          return invalid('Embedding 模型 ID 必须是字符串或 null')
+        }
+        const model = requested === null ? null : embeddingModel(requested)
+        if (requested !== null && !model) return notFound('Embedding 模型不存在')
+        const previous = settings.embedding_model
+        settings.embedding_model = model ? { ...model } : null
+        settings.rebuild_required = Boolean(model && previous && model.id !== previous.id)
       }
-      return ok(defaultSettings)
+      if ('rerank_model_id' in data) {
+        const requested = data.rerank_model_id
+        if (requested !== null && typeof requested !== 'string') {
+          return invalid('Rerank 模型 ID 必须是字符串或 null')
+        }
+        const model = requested === null ? null : rerankModel(requested)
+        if (requested !== null && !model) return notFound('Rerank 模型不存在')
+        settings.rerank_model = model ? { ...model } : null
+      }
+      if ('retrieval_config' in data) {
+        if (data.retrieval_config === null) {
+          settings.values = cloneJson(defaultSettings.values)
+          settings.resolved = cloneJson(defaultSettings.resolved)
+        } else if (isRecord(data.retrieval_config)) {
+          for (const [key, value] of Object.entries(data.retrieval_config)) {
+            if (!(key in settings.resolved)) return invalid(`未知检索配置: ${key}`)
+            settings.values[key] = { value: value as string | number | boolean, source: 'override' }
+            settings.resolved[key] = value as string | number | boolean
+          }
+        } else {
+          return invalid('检索配置必须是对象或 null')
+        }
+      }
+      return ok(settings)
     }
   }
 
@@ -976,16 +1072,23 @@ export function handleKnowledgeMock(
       .filter((item) => item.test_set_id === setId && item.enabled && (!requestedIds.length || requestedIds.includes(item.id)))
       .sort((a, b) => a.sort_order - b.sort_order)
     if (!cases.length) return invalid('没有可执行的启用用例')
+    const runKbId = mockTestSets.find((item) => item.id === setId)?.kb_id || 'kb1'
+    const settings = retrievalSettingsFor(runKbId)
     const run: RetrievalTestRun = {
       id: nextId('run-'),
       test_set_id: setId,
-      kb_id: mockTestSets.find((item) => item.id === setId)?.kb_id || 'kb1',
+      kb_id: runKbId,
       status: 'pending',
       config_snapshot: {
-        settings: cloneJson(defaultSettings),
+        settings: cloneJson(settings),
         ks: numberList(data.ks),
-        embedding_model: { id: 'model-embedding', name: 'BGE-M3', prov: 'local', dim: 1024 },
-        rerank_model: cloneJson(defaultSettings.rerank_model),
+        embedding_model: settings.embedding_model
+          ? {
+              ...settings.embedding_model,
+              dim: Number(settings.embedding_model.params.dim)
+            }
+          : null,
+        rerank_model: settings.rerank_model ? { ...settings.rerank_model } : null,
         document_metadata: isRecord(data.document_metadata) ? data.document_metadata : {},
         chunk_metadata: isRecord(data.chunk_metadata) ? data.chunk_metadata : {},
       },

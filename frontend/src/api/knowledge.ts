@@ -86,6 +86,10 @@ export function updateMetadataField(
   return request.put(`/knowledge/${kbId}/metadata-fields/${id}`, data)
 }
 
+export function reorderMetadataFields(kbId: string, ids: string[]): Promise<SuccessResult> {
+  return request.put(`/knowledge/${kbId}/metadata-fields/reorder`, { ids })
+}
+
 export function deleteMetadataField(
   kbId: string,
   id: string,

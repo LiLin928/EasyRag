@@ -1,71 +1,100 @@
-﻿<script setup lang="ts">
-import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { useKnowledgeStore } from '@/stores/knowledge'
+<script setup lang="ts">
+import { ref, watch } from 'vue'
 import StatusChip from '@/components/common/StatusChip.vue'
 import FileIcon from '@/components/common/FileIcon.vue'
-import type { Document } from '@/types/knowledge'
+import ConfirmDelete from '@/components/common/ConfirmDelete.vue'
+import type { DocumentAsset, MetadataField } from '@/types/knowledge'
 
-const props = defineProps<{
+interface Props {
   kbId: string
+  documents: DocumentAsset[]
+  loading: boolean
+  fields: MetadataField[]
+  selectedIds: string[]
+}
+
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+  'selection-change': [ids: string[]]
+  view: [document: DocumentAsset]
+  metadata: [document: DocumentAsset]
+  rebuild: [document: DocumentAsset]
+  toggle: [document: DocumentAsset, enabled: boolean]
+  delete: [document: DocumentAsset]
 }>()
 
-const router = useRouter()
-const knowledgeStore = useKnowledgeStore()
+const tableRef = ref()
 
-const statusMap: Record<string, { type: 'ok' | 'err' | 'warn' | 'run' | 'wait' | 'gray'; label: string }> = {
+watch(
+  () => props.selectedIds,
+  (ids) => {
+    if (ids.length === 0) tableRef.value?.clearSelection()
+  }
+)
+
+const statusMap: Record<DocumentAsset['status'], { type: 'ok' | 'err' | 'warn' | 'run' | 'wait' | 'gray'; label: string }> = {
   done: { type: 'ok', label: '已完成' },
   parsing: { type: 'run', label: '解析中' },
   failed: { type: 'err', label: '失败' },
   pending: { type: 'wait', label: '等待中' }
 }
 
-function getStatusInfo(status: string) {
-  return statusMap[status] || { type: 'gray', label: status }
+function getStatusInfo(status: DocumentAsset['status']) {
+  return statusMap[status]
 }
 
-function handleView(doc: Document) {
-  router.push('/knowledge/' + props.kbId + '/docs/' + doc.id)
+function formatSize(size: number): string {
+  if (size >= 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + ' MB'
+  if (size >= 1024) return (size / 1024).toFixed(1) + ' KB'
+  return size + ' B'
 }
 
-async function handleDelete(doc: Document) {
-  try {
-    await ElMessageBox.confirm('确定要删除文档"' + doc.name + '"吗？', '删除确认', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    
-    await knowledgeStore.deleteDocument(doc.id)
-    ElMessage.success('删除成功')
-  } catch (error) {
-    // 取消删除
-  }
+function formatMetadata(value: unknown): string {
+  if (value === null || value === undefined || value === '') return ''
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function metadataItems(document: DocumentAsset, fields: MetadataField[]) {
+  return fields
+    .filter((field) => field.visible)
+    .map((field) => ({
+      field,
+      value: document.metadata[field.key],
+      missing: field.required && !field.mapped_field && document.metadata[field.key] === undefined
+    }))
+}
+
+function handleSelection(rows: DocumentAsset[]): void {
+  emit('selection-change', rows.map((row) => row.id))
 }
 </script>
 
 <template>
-  <el-table :data="knowledgeStore.docList" v-loading="knowledgeStore.docLoading" stripe>
-    <el-table-column label="文件名" min-width="200">
+  <el-table
+    ref="tableRef"
+    :data="documents"
+    v-loading="loading"
+    row-key="id"
+    stripe
+    class="document-table"
+    @selection-change="handleSelection($event as DocumentAsset[])"
+  >
+    <el-table-column type="selection" width="44" fixed="left" />
+    <el-table-column label="文件" min-width="220" fixed="left" show-overflow-tooltip>
       <template #default="{ row }">
         <div class="doc-name">
-          <FileIcon :ext="row.ext" :size="32" />
+          <FileIcon :ext="row.ext" :size="28" />
           <span class="name-text">{{ row.name }}</span>
         </div>
       </template>
     </el-table-column>
-    
-    <el-table-column prop="size" label="大小" width="100" />
-    
-    <el-table-column label="解析模式" width="100">
-      <template #default="{ row }">
-        <el-tag size="small" :type="row.mode === 'precision' ? 'warning' : 'info'">
-          {{ row.mode === 'precision' ? '精准' : '快速' }}
-        </el-tag>
-      </template>
+    <el-table-column label="大小" width="100">
+      <template #default="{ row }">{{ formatSize(row.size) }}</template>
     </el-table-column>
-    
-    <el-table-column label="状态" width="140">
+    <el-table-column label="状态" width="130">
       <template #default="{ row }">
         <div class="status-cell">
           <StatusChip :type="getStatusInfo(row.status).type" :label="getStatusInfo(row.status).label" />
@@ -74,24 +103,58 @@ async function handleDelete(doc: Document) {
             :percentage="row.pct"
             :stroke-width="4"
             :show-text="false"
-            style="margin-top: 4px"
           />
         </div>
       </template>
     </el-table-column>
-    
-    <el-table-column prop="elementCount" label="元素数" width="80" />
-    
-    <el-table-column prop="createdAt" label="上传时间" width="160" />
-    
-    <el-table-column label="操作" width="140" fixed="right">
+    <el-table-column prop="chunk_count" label="分段数" width="80" align="right" />
+    <el-table-column label="元数据" min-width="210">
       <template #default="{ row }">
-        <el-button link type="primary" size="small" @click="handleView(row as Document)">
-          详情
-        </el-button>
-        <el-button link type="danger" size="small" @click="handleDelete(row as Document)">
-          删除
-        </el-button>
+        <div class="metadata-cell">
+          <template v-for="item in metadataItems(row as DocumentAsset, fields)" :key="item.field.id">
+            <el-tag v-if="item.missing" size="small" type="danger" class="metadata-tag">
+              {{ item.field.name }}缺失
+            </el-tag>
+            <el-tag v-else-if="formatMetadata(item.value)" size="small" type="info" class="metadata-tag">
+              {{ formatMetadata(item.value) }}
+            </el-tag>
+          </template>
+          <span v-if="metadataItems(row as DocumentAsset, fields).length === 0" class="muted">--</span>
+        </div>
+      </template>
+    </el-table-column>
+    <el-table-column prop="recall_count" label="召回次数" width="90" align="right" />
+    <el-table-column label="启用" width="76">
+      <template #default="{ row }">
+        <el-switch
+          size="small"
+          :model-value="row.enabled"
+          @change="emit('toggle', row as DocumentAsset, $event as boolean)"
+        />
+      </template>
+    </el-table-column>
+    <el-table-column prop="created_at" label="上传时间" width="160" show-overflow-tooltip />
+    <el-table-column label="操作" width="205" fixed="right" align="center">
+      <template #default="{ row }">
+        <el-tooltip content="详情" placement="top">
+          <el-button icon="View" circle text type="primary" @click="emit('view', row as DocumentAsset)" />
+        </el-tooltip>
+        <el-tooltip content="元数据" placement="top">
+          <el-button icon="Edit" circle text type="primary" @click="emit('metadata', row as DocumentAsset)" />
+        </el-tooltip>
+        <el-tooltip content="重建索引" placement="top">
+          <el-button icon="Refresh" circle text type="primary" @click="emit('rebuild', row as DocumentAsset)" />
+        </el-tooltip>
+        <el-tooltip :content="row.enabled ? '禁用' : '启用'" placement="top">
+          <el-button
+            :icon="row.enabled ? 'TurnOff' : 'Open'"
+            circle
+            text
+            type="warning"
+            @click="emit('toggle', row as DocumentAsset, !row.enabled)"
+          />
+        </el-tooltip>
+        <ConfirmDelete :message="`确定删除“${row.name}”吗？`" @confirm="emit('delete', row as DocumentAsset)" />
       </template>
     </el-table-column>
   </el-table>
@@ -101,8 +164,9 @@ async function handleDelete(doc: Document) {
 .doc-name {
   display: flex;
   align-items: center;
-  gap: 12px;
-  
+  min-width: 0;
+  gap: 10px;
+
   .name-text {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -114,6 +178,29 @@ async function handleDelete(doc: Document) {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 4px;
+}
+
+.metadata-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.metadata-tag {
+  max-width: 100%;
+}
+
+.muted {
+  color: var(--el-text-color-secondary);
+}
+
+:deep(.el-button + .el-button) {
+  margin-left: 4px;
+}
+
+:deep(.el-button--small) {
+  margin-left: 4px;
 }
 </style>
-
