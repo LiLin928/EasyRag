@@ -56,7 +56,7 @@ const defaults: SettingsForm = {
   final_top_k: 5,
   vector_top_k: 20,
   keyword_top_k: 20,
-  similarity_threshold: 0.3,
+  similarity_threshold: 0.0,
   vector_weight: 0.7,
   keyword_weight: 0.3,
   rrf_k: 60,

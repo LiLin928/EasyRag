@@ -204,12 +204,19 @@ async def build_predicates_for_kbs(
     for row in rows:
         by_kb[row.kb_id].append(row)
 
-    predicates: list[str] = []
-    params: dict[str, object] = {}
-    for fields in by_kb.values():
+    all_predicates: list[str] = []
+    all_params: dict[str, object] = {}
+    for kb_index, fields in enumerate(by_kb.values()):
         predicates, params = build_sql_predicates(
             filters,
             [field for field in fields if field.scope == "document"],
             [field for field in fields if field.scope == "chunk"],
         )
-    return predicates, params
+        # Namespace param keys to avoid collisions across KBs
+        namespaced = {f"kb{kb_index}_{k}": v for k, v in params.items()}
+        for p in predicates:
+            for old_key in params:
+                p = p.replace(f":{old_key}", f":kb{kb_index}_{old_key}")
+            all_predicates.append(p)
+        all_params.update(namespaced)
+    return all_predicates, all_params
