@@ -3,11 +3,11 @@ import { computed, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import PageHeader from '@/components/common/PageHeader.vue'
-import EmptyState from '@/components/common/EmptyState.vue'
 import DocumentsTab from './components/DocumentsTab.vue'
 import SegmentsTab from './components/SegmentsTab.vue'
 import MetadataTab from './components/MetadataTab.vue'
 import RetrievalSettingsTab from './components/RetrievalSettingsTab.vue'
+import RetrievalTestingTab from './components/RetrievalTestingTab.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -116,10 +116,7 @@ function goTesting(): void {
         <MetadataTab v-if="activeTab === 'metadata'" :kb-id="kbId" />
       </el-tab-pane>
       <el-tab-pane label="召回测试" name="testing" lazy>
-        <!-- Task 11 replaces this placeholder with RetrievalTestingTab.vue. -->
-        <div v-if="activeTab === 'testing'" class="testing-placeholder">
-          <EmptyState icon="DataAnalysis" text="召回测试待接入" />
-        </div>
+        <RetrievalTestingTab v-if="activeTab === 'testing'" :kb-id="kbId" />
       </el-tab-pane>
       <el-tab-pane label="设置" name="settings" lazy>
         <RetrievalSettingsTab v-if="activeTab === 'settings'" :kb-id="kbId" />

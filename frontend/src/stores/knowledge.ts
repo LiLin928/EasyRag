@@ -385,7 +385,9 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   // ========== 召回测试集 ==========
   async function loadTestSets(kbId: string, includeArchived?: boolean): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     const result = await kbApi.getTestSets(kbId, includeArchived)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
     testSets.value = result.list
   }
 
@@ -484,6 +486,30 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   async function loadRunResults(runId: string): Promise<void> {
     const result = await kbApi.getTestRunResults(runId)
     runResults.value = result.list
+  }
+  async function loadTestRuns(setId: string): Promise<RetrievalTestRun[]> {
+    const result = await kbApi.getTestRuns(setId)
+    return result.list
+  }
+
+  function selectTestSet(set: RetrievalTestSet | null): void {
+    currentTestSet.value = set
+    if (!set) {
+      testCases.value = []
+      currentRun.value = null
+      runResults.value = []
+      stopRunPolling()
+    }
+  }
+
+  function clearRunState(): void {
+    currentRun.value = null
+    runResults.value = []
+    stopRunPolling()
+  }
+
+  function setCurrentRun(run: RetrievalTestRun | null): void {
+    currentRun.value = run
   }
 
   // ========== 结构树与元素 ==========
@@ -606,6 +632,11 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     pollTestRun,
     cancelTestRun,
     loadRunResults,
+    loadTestRuns,
+    selectTestSet,
+    clearRunState,
+    setCurrentRun,
+    stopRunPolling,
 
     // 结构树与元素
     loadTree,
