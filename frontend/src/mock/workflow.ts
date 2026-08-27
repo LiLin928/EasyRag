@@ -1,4 +1,4 @@
-﻿import type { Workflow, Template, Execution, WfNode, WfEdge } from '@/types/workflow'
+import type { Workflow, Template, Execution, WfNode, WfEdge } from '@/types/workflow'
 
 // ========== 模拟数据 ==========
 
@@ -118,19 +118,96 @@ export const mockExecutions: Execution[] = [
 
 // 示例节点数据
 export const mockNodes: WfNode[] = [
-  { id: 'start', type: 'start', name: '开始', position: { x: 100, y: 100 }, data: { rows: [] } },
-  { id: 'llm_1', type: 'llm', name: 'LLM 分析', position: { x: 350, y: 100 }, data: { rows: [['模型', 'gpt-4']] } },
-  { id: 'cond_1', type: 'condition', name: '判断结果', position: { x: 600, y: 100 }, data: { rows: [['条件', 'score > 0.8']] } },
-  { id: 'tpl_1', type: 'template_render', name: '生成报告', position: { x: 850, y: 50 }, data: { rows: [['模板', 'report.j2']] } },
-  { id: 'var_1', type: 'variable_assign', name: '记录失败', position: { x: 850, y: 150 }, data: { rows: [['变量', 'failed']] } },
-  { id: 'end', type: 'end', name: '结束', position: { x: 1100, y: 100 }, data: { rows: [] } }
+  {
+    id: 'start', type: 'start', name: '开始', position: { x: 100, y: 100 },
+    data: {
+      rows: [],
+      config: {
+        input_variables: [
+          { name: 'query', label: '用户问题', type: 'string', required: true }
+        ]
+      }
+    }
+  },
+  {
+    id: 'llm_1', type: 'llm', name: 'LLM 分析', position: { x: 350, y: 100 },
+    data: {
+      rows: [['模型', 'gpt-4']],
+      config: {
+        model: 'gpt-4',
+        systemPrompt: '你是一个文档分析助手',
+        temperature: 0.7,
+        maxTokens: 2000,
+        input_variables: [
+          { name: 'query', source: '${start.query}' }
+        ],
+        output_variables: [
+          { name: 'result' },
+          { name: 'content' }
+        ]
+      }
+    }
+  },
+  {
+    id: 'cond_1', type: 'condition', name: '判断结果', position: { x: 600, y: 100 },
+    data: {
+      rows: [['条件', 'score > 0.8']],
+      config: {
+        expression: 'score > 0.8',
+        trueLabel: '是',
+        falseLabel: '否',
+        input_variables: [
+          { name: 'score', source: '${llm_1.result}' }
+        ]
+      }
+    }
+  },
+  {
+    id: 'tpl_1', type: 'template_render', name: '生成报告', position: { x: 850, y: 50 },
+    data: {
+      rows: [['模板', 'report.j2']],
+      config: {
+        template: '分析报告：{{content}}',
+        input_variables: [
+          { name: 'content', source: '${llm_1.content}' }
+        ],
+        output_variables: [
+          { name: 'result' }
+        ]
+      }
+    }
+  },
+  {
+    id: 'var_1', type: 'variable_assign', name: '记录失败', position: { x: 850, y: 150 },
+    data: {
+      rows: [['变量', 'failed']],
+      config: {
+        varName: 'failed',
+        varValue: 'true',
+        input_variables: [
+          { name: 'reason', source: '${llm_1.result}' }
+        ]
+      }
+    }
+  },
+  {
+    id: 'end', type: 'end', name: '结束', position: { x: 1100, y: 100 },
+    data: {
+      rows: [],
+      config: {
+        output_variables: [
+          { name: 'report', source: '${tpl_1.result}' }
+        ]
+      }
+    }
+  }
 ]
 
 export const mockEdges: WfEdge[] = [
   { id: 'e1', source: 'start', target: 'llm_1' },
   { id: 'e2', source: 'llm_1', target: 'cond_1' },
-  { id: 'e3', source: 'cond_1', target: 'tpl_1', label: '是', sourceHandle: 'r' },
-  { id: 'e4', source: 'cond_1', target: 'var_1', label: '否', sourceHandle: 'l' },
+  { id: 'e3', source: 'cond_1', target: 'tpl_1', label: '是', sourceHandle: 'yes' },
+  { id: 'e4', source: 'cond_1', target: 'var_1', label: '否', sourceHandle: 'no' },
   { id: 'e5', source: 'tpl_1', target: 'end' },
   { id: 'e6', source: 'var_1', target: 'end' }
 ]
@@ -245,3 +322,5 @@ export function handleWorkflowMock(url: string, method: string, data: any): any 
   
   return null
 }
+
+

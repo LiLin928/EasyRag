@@ -3,19 +3,22 @@ import { useWorkflowExecutionStore } from '@/stores/workflow'
 
 const store = useWorkflowExecutionStore()
 
+const emit = defineEmits<{
+  (e: 'continue'): void
+  (e: 'step'): void
+  (e: 'stop'): void
+}>()
+
 function handleContinue() {
-  // TODO: 继续执行
-  console.log('Continue execution')
+  emit('continue')
 }
 
 function handleStop() {
-  // TODO: 停止执行
-  console.log('Stop execution')
+  emit('stop')
 }
 
 function handleStepOver() {
-  // TODO: 单步执行
-  console.log('Step over')
+  emit('step')
 }
 </script>
 
@@ -25,7 +28,7 @@ function handleStepOver() {
       <el-icon class="debug-icon"><Cpu /></el-icon>
       <span class="debug-label">调试模式</span>
       <el-tag size="small" type="warning">
-        当前节点: {{ store.logs.length }}
+        日志数: {{ store.logs.length }}
       </el-tag>
     </div>
     

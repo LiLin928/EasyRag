@@ -1,10 +1,11 @@
-﻿// ========== 工作流节点类型 ==========
+// ========== 工作流节点类型 ==========
 
 export type NodeType =
   | 'start'
   | 'end'
   | 'condition'
   | 'loop'
+  | 'loop_end'
   | 'human'
   | 'variable_assign'
   | 'template_render'
@@ -28,7 +29,8 @@ export const NODE_TYPES: NodeTypeInfo[] = [
   { type: 'start', name: '开始', group: 'basic', color: '#334155', icon: 'VideoPlay' },
   { type: 'end', name: '结束', group: 'basic', color: '#334155', icon: 'VideoPause' },
   { type: 'condition', name: '条件分支', group: 'basic', color: '#CA8A04', icon: 'Share' },
-  { type: 'loop', name: '循环', group: 'basic', color: '#0891B2', icon: 'Refresh' },
+  { type: 'loop', name: '循环开始', group: 'basic', color: '#0891B2', icon: 'Refresh' },
+  { type: 'loop_end', name: '循环结束', group: 'basic', color: '#0891B2', icon: 'CircleCheck' },
   { type: 'human', name: '人工介入', group: 'basic', color: '#7C3AED', icon: 'User' },
   { type: 'variable_assign', name: '变量赋值', group: 'basic', color: '#64748B', icon: 'Edit' },
   { type: 'template_render', name: '模板渲染', group: 'basic', color: '#B45309', icon: 'Document' },
@@ -38,6 +40,53 @@ export const NODE_TYPES: NodeTypeInfo[] = [
   { type: 'http', name: 'HTTP 请求', group: 'cap', color: '#C2410C', icon: 'Link' },
   { type: 'tool', name: '外部工具', group: 'cap', color: '#9D174D', icon: 'Setting' }
 ]
+
+// ========== 节点参数传递 ==========
+
+/** 输入变量映射 — 引用上游节点输出 */
+export interface InputVariableMapping {
+  /** 参数名，如 "query" */
+  name: string
+  /** 显示名 */
+  label?: string
+  /** 引用路径，如 "${llm_1.result}" */
+  source?: string
+  /** 默认值 */
+  default?: any
+}
+
+/** 输出变量定义 — 声明本节点产出 */
+export interface OutputVariableMapping {
+  /** 变量名，如 "result" */
+  name: string
+  /** JSON 提取路径，如 "content" */
+  path?: string
+}
+
+/** 上游可引用变量选项（用于下拉选择） */
+export interface OutputParamOption {
+  /** 展示名，如 "LLM 分析.result" */
+  name: string
+  /** 引用路径，如 "${llm_1.result}" */
+  path: string
+}
+
+/** 每种节点类型的默认输出参数 */
+export const NODE_OUTPUT_PARAMS: Record<NodeType, OutputVariableMapping[]> = {
+  start: [],   // 由用户定义的 input_variables 决定
+  end: [],
+  condition: [{ name: 'result' }],
+  loop: [{ name: 'result' }, { name: 'index' }, { name: 'item' }],
+  loop_end: [{ name: 'result' }],
+  human: [{ name: 'result' }, { name: 'input' }],
+  variable_assign: [{ name: 'result' }],
+  template_render: [{ name: 'result' }, { name: 'content' }],
+  llm: [{ name: 'result' }, { name: 'content' }],
+  rag: [{ name: 'result' }, { name: 'documents' }, { name: 'context' }],
+  code: [{ name: 'result' }, { name: 'output' }],
+  http: [{ name: 'result' }, { name: 'response' }],
+  tool: [{ name: 'result' }, { name: 'output' }]
+}
 
 // ========== 工作流定义 ==========
 
@@ -57,7 +106,7 @@ export interface WfEdge {
   source: string
   target: string
   label?: string
-  sourceHandle?: 'l' | 'r' // 条件分支双出口
+  sourceHandle?: 'yes' | 'no' // 条件分支双出口（对应 Handle id）
 }
 
 export interface Workflow {
@@ -191,3 +240,4 @@ export type WfExecEvent =
   | ExecResumedEvent
   | ExecCompleteEvent
   | ExecErrorEvent
+

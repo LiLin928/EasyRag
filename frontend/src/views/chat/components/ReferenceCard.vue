@@ -1,5 +1,7 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref } from 'vue'
+import { ElMessageBox } from 'element-plus'
+import * as chatApi from '@/api/chat'
 import type { Reference } from '@/types/chat'
 
 interface Props {
@@ -31,6 +33,34 @@ function handleExpand() {
     emit('expand', props.data.element_id)
   }
 }
+
+async function handleViewDetail() {
+  let content = props.data.content_preview
+  try {
+    const detail = await chatApi.getElementDetail(props.data.element_id)
+    content = detail.content || detail.content_preview || content
+  } catch {
+    // API 失败时回退到已有预览
+  }
+  ElMessageBox.alert(content, '元素详情', { confirmButtonText: '关闭' })
+}
+
+async function handleViewContext() {
+  let content = props.data.content_preview
+  try {
+    const list = await chatApi.getElementContext(props.data.element_id, 3)
+    if (Array.isArray(list) && list.length > 0) {
+      const parts = list.map((item: any, i: number) => {
+        const title = item.node_title ? '[' + item.node_title + '] ' : ''
+        return '【' + (i + 1) + '】' + title + (item.content || item.content_preview || '')
+      })
+      content = parts.join('\n\n---\n\n')
+    }
+  } catch {
+    // API 失败时回退到已有预览
+  }
+  ElMessageBox.alert(content, '上下文内容', { confirmButtonText: '关闭' })
+}
 </script>
 
 <template>
@@ -54,11 +84,11 @@ function handleExpand() {
       </div>
       <div class="ref-preview">{{ data.content_preview }}</div>
       <div class="ref-actions">
-        <el-button size="small" text type="primary">
+        <el-button size="small" text type="primary" @click.stop="handleViewDetail">
           <el-icon><View /></el-icon>
           查看详情
         </el-button>
-        <el-button size="small" text type="primary">
+        <el-button size="small" text type="primary" @click.stop="handleViewContext">
           <el-icon><Connection /></el-icon>
           查看上下文
         </el-button>

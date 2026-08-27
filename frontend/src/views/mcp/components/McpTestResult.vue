@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useMcpStore } from '@/stores/mcp'
@@ -22,7 +22,6 @@ const mcpStore = useMcpStore()
 const loading = ref(false)
 const testResult = ref<McpTestResult | null>(null)
 
-// 监听 visible 变化，重置状态
 watch(() => props.visible, (val) => {
   if (val && props.mcp) {
     testResult.value = null
@@ -45,7 +44,7 @@ async function handleTest() {
     testResult.value = result
 
     if (result.success) {
-      ElMessage.success(`测试成功，耗时 ${result.duration}ms`)
+      ElMessage.success('测试成功，耗时 ' + result.duration + 'ms')
     } else {
       ElMessage.error(result.error || '测试失败')
     }
@@ -68,14 +67,13 @@ async function handleRetry() {
 </script>
 
 <template>
-  <el-drawer
+  <el-dialog
     :model-value="visible"
     title="MCP 服务测试"
-    size="500px"
+    width="600px"
     @update:model-value="handleClose"
   >
     <div v-if="mcp" class="test-panel">
-      <!-- MCP 信息 -->
       <div class="mcp-info">
         <h4>{{ mcp.name }}</h4>
         <div class="mcp-meta">
@@ -90,13 +88,11 @@ async function handleRetry() {
         </div>
       </div>
 
-      <!-- 测试中状态 -->
       <div v-if="loading && !testResult" class="testing-state">
         <el-icon class="is-loading" :size="32"><Loading /></el-icon>
         <p>正在测试连接...</p>
       </div>
 
-      <!-- 测试结果 -->
       <div v-if="testResult" class="result-section">
         <h4>测试结果</h4>
 
@@ -150,7 +146,7 @@ async function handleRetry() {
     <div v-else class="no-mcp">
       <el-empty description="请选择要测试的 MCP 服务" />
     </div>
-  </el-drawer>
+  </el-dialog>
 </template>
 
 <style lang="scss" scoped>

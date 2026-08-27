@@ -1,4 +1,5 @@
-<script setup lang="ts">
+ï»¿<script setup lang="ts">
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useWorkflowListStore } from '@/stores/workflow'
 import type { Template } from '@/types/workflow'
@@ -7,15 +8,16 @@ const props = defineProps<{
   data: Template
 }>()
 
+const router = useRouter()
 const store = useWorkflowListStore()
 
 async function handleUse() {
   try {
-    await store.createFromTemplate(props.data.id, props.data.name)
-    ElMessage.success('´´½¨³É¹¦')
-    // TODO: Ìø×ªµ½±à¼­Æ÷
+    const wf = await store.createFromTemplate(props.data.id, props.data.name)
+    ElMessage.success('åˆ›å»ºæˆåŠŸ')
+    router.push('/workflows/editor/' + wf.id)
   } catch (error) {
-    ElMessage.error('´´½¨Ê§°Ü')
+    ElMessage.error('åˆ›å»ºå¤±è´¥')
   }
 }
 
@@ -24,7 +26,7 @@ function getSourceType(source: string) {
 }
 
 function getSourceLabel(source: string) {
-  return source === 'official' ? '¹Ù·½' : 'ÉçÇø'
+  return source === 'official' ? 'å®˜æ–¹' : 'ç¤¾åŒº'
 }
 </script>
 
@@ -37,7 +39,7 @@ function getSourceLabel(source: string) {
     </div>
     
     <h3 class="card-title">{{ data.name }}</h3>
-    <p class="card-desc">{{ data.description || 'ÔİÎŞÃèÊö' }}</p>
+    <p class="card-desc">{{ data.description || 'æš‚æ— æè¿°' }}</p>
     
     <div class="card-tags">
       <el-tag v-for="tag in data.tags" :key="tag" size="small" effect="plain">
@@ -46,12 +48,12 @@ function getSourceLabel(source: string) {
     </div>
     
     <div class="card-meta">
-      <span>{{ data.nodeCount }} ¸ö½Úµã</span>
-      <span>{{ data.useCount }} ´ÎÊ¹ÓÃ</span>
+      <span>{{ data.nodeCount }} ä¸ªèŠ‚ç‚¹</span>
+      <span>{{ data.useCount }} æ¬¡ä½¿ç”¨</span>
     </div>
     
     <el-button type="primary" size="small" class="use-btn" @click="handleUse">
-      Ê¹ÓÃ´ËÄ£°å
+      ä½¿ç”¨æ­¤æ¨¡æ¿
     </el-button>
   </div>
 </template>
@@ -105,4 +107,3 @@ function getSourceLabel(source: string) {
   width: 100%;
 }
 </style>
-

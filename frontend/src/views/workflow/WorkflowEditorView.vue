@@ -7,7 +7,8 @@ import WorkflowCanvas from './components/WorkflowCanvas.vue'
 import NodeConfigModal from './components/NodeConfigModal.vue'
 import ExecutionPanel from './components/ExecutionPanel.vue'
 import DebugToolbar from './components/DebugToolbar.vue'
-import type { NodeType, WfNode } from '@/types/workflow'
+import type { WfNode } from '@/types/workflow'
+import { NODE_TYPES } from '@/types/workflow'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,23 +21,15 @@ const executing = ref(false)
 const configVisible = ref(false)
 const selectedNode = ref<WfNode | null>(null)
 
-const basicNodes: { type: NodeType; name: string; icon: string }[] = [
-  { type: 'start', name: '开始', icon: 'VideoPlay' },
-  { type: 'end', name: '结束', icon: 'VideoPause' },
-  { type: 'condition', name: '条件分支', icon: 'Share' },
-  { type: 'loop', name: '循环', icon: 'Refresh' },
-  { type: 'human', name: '人工介入', icon: 'User' },
-  { type: 'variable_assign', name: '变量赋值', icon: 'Edit' },
-  { type: 'template_render', name: '模板渲染', icon: 'Document' }
-]
+// 调试控制
+const debugPaused = ref(false)
+const debugResolve = ref<(() => void) | null>(null)
+const debugAbort = ref(false)
+const debugCurrentIndex = ref(0)
 
-const capNodes: { type: NodeType; name: string; icon: string }[] = [
-  { type: 'llm', name: 'LLM 生成', icon: 'ChatDotSquare' },
-  { type: 'rag', name: 'RAG 检索', icon: 'Search' },
-  { type: 'code', name: '代码执行', icon: 'Cpu' },
-  { type: 'http', name: 'HTTP 请求', icon: 'Link' },
-  { type: 'tool', name: '外部工具', icon: 'Setting' }
-]
+const basicNodes = NODE_TYPES.filter(n => n.group === 'basic')
+
+const capNodes = NODE_TYPES.filter(n => n.group === 'cap')
 
 onMounted(async () => {
   const id = route.params.id as string
@@ -116,6 +109,29 @@ function handleAutoLayout() {
   store.markDirty()
 }
 
+// 执行单个节点
+async function executeNode(node: WfNode) {
+  execStore.updateNodeState(node.id, { status: 'running' })
+  execStore.addLog(node.id, 'info', '开始执行节点: ' + node.name)
+  
+  // 模拟 human 节点等待
+  if (node.type === 'human') {
+    execStore.addLog(node.id, 'warning', '等待人工介入...')
+    execStore.updateNodeState(node.id, { status: 'wait' })
+    await new Promise(resolve => setTimeout(resolve, 1500))
+  }
+  
+  await new Promise(resolve => setTimeout(resolve, 800))
+  
+  const duration = Math.floor(Math.random() * 2000) + 500
+  execStore.updateNodeState(node.id, { 
+    status: 'success', 
+    durationMs: duration
+  })
+  execStore.addLog(node.id, 'success', '节点执行完成 (' + duration + 'ms)')
+}
+
+// 正常执行（全流程）
 async function handleExecute(debug: boolean) {
   if (!store.id) {
     ElMessage.warning('请先保存流程')
@@ -123,34 +139,87 @@ async function handleExecute(debug: boolean) {
   }
   
   executing.value = true
+  debugAbort.value = false
   execStore.reset()
   execStore.debugMode = debug
+  debugCurrentIndex.value = 0
   
   try {
-    for (const node of store.nodes) {
-      execStore.updateNodeState(node.id, { status: 'running' })
-      execStore.addLog(node.id, 'info', '开始执行节点: ' + node.name)
-      
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      execStore.updateNodeState(node.id, { 
-        status: 'success', 
-        durationMs: Math.floor(Math.random() * 2000) + 500
-      })
-      execStore.addLog(node.id, 'success', '节点执行完成')
-      
-      if (debug) {
+    for (let i = 0; i < store.nodes.length; i++) {
+      if (debugAbort.value) {
+        execStore.addLog(store.nodes[i].id, 'warning', '执行已中止')
         break
+      }
+      
+      debugCurrentIndex.value = i
+      await executeNode(store.nodes[i])
+      
+      // 调试模式：每个节点执行后暂停
+      if (debug) {
+        debugPaused.value = true
+        execStore.executing = true
+        await waitForDebugResume()
+        debugPaused.value = false
+        
+        if (debugAbort.value) {
+          execStore.addLog(store.nodes[i].id, 'warning', '执行已中止')
+          break
+        }
       }
     }
     
-    ElMessage.success('执行完成')
+    if (!debugAbort.value) {
+      ElMessage.success('执行完成')
+    }
   } catch (error) {
     ElMessage.error('执行失败')
   } finally {
     executing.value = false
     execStore.executing = false
+    debugPaused.value = false
   }
+}
+
+// 等待调试继续/单步
+function waitForDebugResume(): Promise<void> {
+  return new Promise(resolve => {
+    debugResolve.value = resolve
+  })
+}
+
+// 调试：继续执行到结束
+function handleDebugContinue() {
+  if (debugResolve.value) {
+    // 继续模式：跳过后续暂停
+    execStore.debugMode = false
+    const r = debugResolve.value
+    debugResolve.value = null
+    r()
+  }
+}
+
+// 调试：单步执行
+function handleDebugStep() {
+  if (debugResolve.value) {
+    const r = debugResolve.value
+    debugResolve.value = null
+    r()
+  }
+}
+
+// 调试：停止执行
+function handleDebugStop() {
+  debugAbort.value = true
+  execStore.debugMode = false
+  if (debugResolve.value) {
+    const r = debugResolve.value
+    debugResolve.value = null
+    r()
+  }
+  executing.value = false
+  execStore.executing = false
+  debugPaused.value = false
+  ElMessage.info('已停止调试')
 }
 
 function handleDragStart(event: DragEvent, type: string) {
@@ -194,8 +263,8 @@ watch(
         <el-button @click="handleUndo" :disabled="store.undoStack.length === 0">撤销</el-button>
         <el-button @click="handleAutoLayout">自动布局</el-button>
         <el-divider direction="vertical" />
-        <el-button type="primary" @click="handleExecute(false)" :loading="executing">执行</el-button>
-        <el-button type="warning" @click="handleExecute(true)" :loading="executing">调试</el-button>
+        <el-button type="primary" @click="handleExecute(false)" :loading="executing" :disabled="executing">执行</el-button>
+        <el-button type="warning" @click="handleExecute(true)" :loading="executing" :disabled="executing || debugPaused">调试</el-button>
         <el-divider direction="vertical" />
         <el-button type="primary" @click="handleSave" :loading="saving">保存</el-button>
         <el-button type="success" @click="handlePublish" :loading="publishing">发布</el-button>
@@ -235,7 +304,11 @@ watch(
       
       <div class="canvas-container">
         <WorkflowCanvas class="canvas-area" />
-        <DebugToolbar />
+        <DebugToolbar
+          @continue="handleDebugContinue"
+          @step="handleDebugStep"
+          @stop="handleDebugStop"
+        />
       </div>
     </div>
     

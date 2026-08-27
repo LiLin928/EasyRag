@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import type { ChatMessage } from '@/types/chat'
 import PhaseIndicator from './PhaseIndicator.vue'
 import ReferenceCard from './ReferenceCard.vue'
+import { renderMarkdown } from '@/composables/useMarkdown'
 
 interface Props {
   data: ChatMessage
@@ -17,6 +18,7 @@ const emit = defineEmits<{
 
 const isUser = computed(() => props.data.role === 'user')
 const isStreaming = computed(() => props.data.phase && props.data.phase !== 'idle' && !props.data.trace)
+const renderedContent = computed(() => renderMarkdown(props.data.content || ''))
 </script>
 
 <template>
@@ -36,7 +38,7 @@ const isStreaming = computed(() => props.data.phase && props.data.phase !== 'idl
       />
       
       <!-- 消息内容 -->
-      <div class="content-text" v-html="data.content || '正在思考...'"></div>
+      <div class="content-text" v-html="renderedContent || '正在思考...'"></div>
       
       <!-- 引用列表 -->
       <div v-if="data.references && data.references.length > 0" class="references">

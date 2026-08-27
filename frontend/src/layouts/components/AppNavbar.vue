@@ -10,7 +10,7 @@ const router = useRouter()
 async function handleCommand(command: string) {
   switch (command) {
     case 'profile':
-      // TODO: 跳转个人中心
+      router.push('/settings')
       break
     case 'settings':
       router.push('/settings')
@@ -114,3 +114,4 @@ async function handleCommand(command: string) {
   }
 }
 </style>
+

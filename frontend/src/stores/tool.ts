@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import * as toolApi from '@/api/tool'
 import type { Tool, ToolTestArgs, ToolTestResult } from '@/types/tool'
 
@@ -8,6 +8,19 @@ export const useToolStore = defineStore('tool', () => {
   const tools = ref<Tool[]>([])
   const loading = ref(false)
   const currentTool = ref<Tool | null>(null)
+  const keyword = ref('')
+
+  // ========== 计算属性 ==========
+
+  // 按关键词过滤的工具列表（名称 / 描述）
+  const filteredTools = computed(() => {
+    if (!keyword.value.trim()) return tools.value
+    const kw = keyword.value.toLowerCase()
+    return tools.value.filter(t =>
+      t.name.toLowerCase().includes(kw) ||
+      (t.desc || '').toLowerCase().includes(kw)
+    )
+  })
 
   // ========== 工具操作 ==========
 
@@ -64,6 +77,7 @@ export const useToolStore = defineStore('tool', () => {
     tools.value = []
     currentTool.value = null
     loading.value = false
+    keyword.value = ''
   }
 
   return {
@@ -71,6 +85,8 @@ export const useToolStore = defineStore('tool', () => {
     tools,
     loading,
     currentTool,
+    keyword,
+    filteredTools,
 
     // 操作
     loadTools,

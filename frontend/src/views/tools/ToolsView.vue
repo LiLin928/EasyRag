@@ -68,6 +68,13 @@ async function handleSubmit(data: Partial<Tool>) {
   <div class="tools-view">
     <PageHeader title="工具管理" subtitle="管理可被智能体和工作流调用的外部能力">
       <template #actions>
+        <el-input
+          v-model="toolStore.keyword"
+          placeholder="搜索工具"
+          prefix-icon="Search"
+          clearable
+          style="width: 240px"
+        />
         <el-button type="primary" icon="Plus" @click="handleCreate">
           新建工具
         </el-button>
@@ -80,18 +87,18 @@ async function handleSubmit(data: Partial<Tool>) {
     </div>
 
     <EmptyState
-      v-else-if="toolStore.tools.length === 0"
+      v-else-if="toolStore.filteredTools.length === 0"
       icon="Tools"
-      text="暂无工具"
+      :text="toolStore.keyword ? '未找到匹配的工具' : '暂无工具'"
     >
       <template #action>
-        <el-button type="primary" @click="handleCreate">新建工具</el-button>
+        <el-button v-if="!toolStore.keyword" type="primary" @click="handleCreate">新建工具</el-button>
       </template>
     </EmptyState>
 
     <div v-else class="tools-grid">
       <ToolCard
-        v-for="tool in toolStore.tools"
+        v-for="tool in toolStore.filteredTools"
         :key="tool.id"
         :data="tool"
         @config="handleConfig"
@@ -134,7 +141,7 @@ async function handleSubmit(data: Partial<Tool>) {
 
 .tools-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
   margin-top: 16px;
 }

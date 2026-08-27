@@ -1,9 +1,14 @@
 ﻿<script setup lang="ts">
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import * as wfApi from '@/api/workflow'
 import type { Execution } from '@/types/workflow'
 
 defineProps<{
   data: Execution[]
 }>()
+
+const router = useRouter()
 
 function getStatusType(status: string) {
   const map: Record<string, any> = {
@@ -43,10 +48,17 @@ function formatDuration(ms?: number) {
   return (ms / 1000).toFixed(1) + 's'
 }
 
-function handleRerun(_row: Execution) {
-  // TODO: 重新执行
+async function handleRerun(row: Execution) {
+  try {
+    await wfApi.executeWorkflow(row.workflowId)
+    ElMessage.success('已触发重跑')
+    router.push('/workflows/editor/' + row.workflowId)
+  } catch (error) {
+    ElMessage.error('重跑失败')
+  }
 }
 </script>
+
 
 <template>
   <el-table :data="data" stripe>
@@ -95,3 +107,4 @@ function handleRerun(_row: Execution) {
     </el-table-column>
   </el-table>
 </template>
+

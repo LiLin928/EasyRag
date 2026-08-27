@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useKnowledgeStore } from '@/stores/knowledge'
 
@@ -14,8 +14,12 @@ const filteredDocs = computed(() => {
   )
 })
 
-onMounted(() => {
-  // 加载文档列表（需要先有知识库）
+onMounted(async () => {
+  // 先加载知识库列表，再加载第一个知识库的文档
+  await knowledgeStore.loadKbList()
+  if (knowledgeStore.kbList.length > 0) {
+    await knowledgeStore.loadDocuments(knowledgeStore.kbList[0].id)
+  }
 })
 
 function handleSelect(id: string) {
