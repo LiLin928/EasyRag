@@ -23,3 +23,6 @@ async def get_checkpointer():
         _checkpointer = MemorySaver()
     return _checkpointer
  
+async def init_checkpointer_for_worker():
+    """ARQ worker startup 时提前初始化 checkpointer，避免首个任务冷启动。"""
+    await get_checkpointer()

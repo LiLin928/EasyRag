@@ -7,7 +7,7 @@
 """
 from langgraph.graph import END, START, StateGraph
 
-from app.config import settings
+from app.core.agent.memory import get_checkpointer
 from app.core.engine.nodes import basic  # noqa: F401 — 触发注册
 from app.core.engine.nodes.base import NodeRouter
 from app.core.engine.state import WorkflowState
@@ -42,18 +42,8 @@ class GraphBuilder:
             if n["type"] == "end":
                 graph.add_edge(n["id"], END)
 
-        checkpointer = await self._get_checkpointer()
+        checkpointer = await get_checkpointer()
         interrupt = ["*"] if debug else [
             n["id"] for n in nodes if n["type"] == "human"
         ]
         return graph.compile(checkpointer=checkpointer, interrupt_before=interrupt or None)
-
-    async def _get_checkpointer(self):
-        if settings.env == "production":
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-            cp = AsyncPostgresSaver.from_conn_string(settings.database_url)
-            await cp.setup()
-            return cp
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
- 
