@@ -6,8 +6,12 @@
 4. mcps → MCP server 发现的工具（经 langchain-mcp-adapters）
 5. skills → 技能激活工具（注入 prompt 前缀）
 """
+import asyncio
+import json
+
 from sqlalchemy import select
 
+from app.core.engine.arq_client import enqueue_workflow_task
 from app.db.session import async_session
 from app.models.agent import Agent
 from app.models.mcp import Mcp
@@ -15,6 +19,9 @@ from app.models.skill import Skill
 from app.models.tool import Tool
 from app.models.workflow import Workflow
 from app.services.tool_service import execute_tool
+
+
+WORKFLOW_TIMEOUT_SECONDS = 60
 
 
 async def build_tools(agent: Agent) -> list:
@@ -91,19 +98,36 @@ def _workflow_tool(wf: Workflow):
     """构建工作流触发工具。"""
     from langchain_core.tools import StructuredTool
 
-    async def _run(**kwargs):
-        from app.core.engine.executor import execute_workflow
-        try:
-            result = await execute_workflow(str(wf.id), kwargs)
-            return result
-        except Exception as e:
-            return f"工作流 {wf.name} 执行失败: {e}"
+    async def _run(**kwargs) -> str:
+        exec_id = await enqueue_workflow_task(
+            str(wf.id), kwargs, trigger="agent", user_id=None
+        )
+        for _ in range(WORKFLOW_TIMEOUT_SECONDS):
+            row = await _get_execution(exec_id)
+            if row and row.status in ("completed", "failed", "cancelled"):
+                if row.outputs:
+                    return json.dumps(row.outputs, ensure_ascii=False)
+                return f"工作流{row.status}"
+            await asyncio.sleep(1)
+        return "工作流执行超时"
 
     return StructuredTool.from_function(
         coroutine=_run,
         name=f"workflow_{wf.name}",
         description=wf.description or wf.name,
     )
+
+
+async def _get_execution(exec_id: str):
+    """查询 execution 状态（供轮询使用）。"""
+    from app.models.workflow import WorkflowExecution
+
+    async with async_session() as s:
+        return (
+            await s.execute(
+                select(WorkflowExecution).where(WorkflowExecution.id == exec_id)
+            )
+        ).scalar_one_or_none()
 
 
 def _skill_tool(sk: Skill):
