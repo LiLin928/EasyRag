@@ -100,6 +100,8 @@ class ExecutionOut(BaseModel):
 class ExecuteRequest(BaseModel):
     debug: bool = False
 
+    inputs: dict | None = None
+
 
 # ---------- 待办 ----------
 

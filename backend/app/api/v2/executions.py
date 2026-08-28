@@ -9,9 +9,12 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
+from arq import create_pool
+from app.config import settings
 from app.api.deps import get_current_user
 from app.api.response import ok
 from app.db.session import async_session
+from app.core.engine.sse_bus import subscribe
 from app.exceptions import BizException, ErrorCode
 from app.models.workflow import Workflow, WorkflowExecution
 from app.schemas.workflow import map_exec_status, map_exec_trigger
@@ -55,10 +58,8 @@ async def list_(
 
 @router.post("/{eid}/cancel")
 async def cancel(eid: str, me=Depends(get_current_user)):
-    """取消执行：状态改 cancelled，记录完成时间。"""
+    """取消执行：仅更新 DB status，worker astream 循环检测到后 break。"""
     from datetime import datetime
-
-    from app.core.engine.sse_bus import publish, subscribe, unsubscribe
 
     async with async_session() as s:
         ex = (
@@ -72,23 +73,13 @@ async def cancel(eid: str, me=Depends(get_current_user)):
         ex.completed_at = datetime.now()
         await s.commit()
 
-    # 通知 SSE 订阅者执行已取消
-    await publish(eid, "execution_cancelled", {"executionId": eid})
-    # 发送哨兵关闭 stream
-    q = subscribe(eid)
-    await q.put(None)
-    unsubscribe(eid, q)
-
     return ok({"success": True})
 
 
 @router.post("/{eid}/resume")
 async def resume(eid: str, me=Depends(get_current_user)):
-    """恢复暂停的执行：状态改 running，重新触发引擎继续。"""
+    """恢复暂停的执行：入队 ARQ task，worker 从 checkpoint 断点恢复。"""
     from datetime import datetime
-
-    from app.core.engine.executor import execute_workflow
-    from app.models.workflow import Workflow
 
     async with async_session() as s:
         ex = (
@@ -101,16 +92,9 @@ async def resume(eid: str, me=Depends(get_current_user)):
         ex.status = "running"
         await s.commit()
 
-        wf = (
-            await s.execute(select(Workflow).where(Workflow.id == ex.workflow_id))
-        ).scalar_one_or_none()
-
-    # 后台重新触发引擎（不等待完成）
-    if wf:
-        inputs = ex.inputs or {}
-        asyncio.create_task(
-            execute_workflow(str(wf.id), inputs, trigger="manual", user_id=me.id)
-        )
+    # 入队 ARQ task — worker 发现 checkpoint 存在 → astream(None) 断点恢复
+    pool = await create_pool(settings.redis_url)
+    await pool.enqueue_job("execute_workflow_task", execution_id=eid)
 
     return ok({"success": True})
 
@@ -206,8 +190,7 @@ async def node_detail(eid: str, node_id: str, me=Depends(get_current_user)):
 
 @router.get("/{eid}/stream")
 async def stream(eid: str, me=Depends(get_current_user)):
-    """SSE 执行事件流：订阅 SSE bus 实时推送执行进度。"""
-    from app.core.engine.sse_bus import drain, subscribe, unsubscribe
+    """SSE 执行事件流：订阅 Redis Stream 实时推送执行进度。"""
 
     async with async_session() as s:
         ex = (
@@ -216,24 +199,21 @@ async def stream(eid: str, me=Depends(get_current_user)):
         if not ex:
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
 
-    queue = subscribe(eid)
-
     async def event_gen():
         try:
             # 如果执行已经完成，推送最终状态后关闭
             if ex.status in ("completed", "failed", "cancelled"):
                 from app.sse.emitter import sse_event
-                import json
                 yield sse_event(
                     "execution_complete",
                     {"status": ex.status, "duration_ms": ex.duration_ms},
                 )
                 return
-            # 消费 SSE bus 事件
-            async for event in drain(queue):
+            # 消费 Redis Stream 事件（XRANGE 历史 + XREAD 实时）
+            async for event in subscribe(eid):
                 yield event
-        finally:
-            unsubscribe(eid, queue)
+        except asyncio.CancelledError:
+            pass  # 客户端断开
 
     return StreamingResponse(
         event_gen(),

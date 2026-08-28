@@ -15,6 +15,7 @@ from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowVersion
 from app.schemas.workflow import ExecuteRequest, WorkflowCreate, WorkflowUpdate
+from app.core.engine.arq_client import enqueue_workflow_task
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -164,7 +165,7 @@ async def duplicate(wid: str, me=Depends(get_current_user)):
 
 @router.post("/{wid}/execute")
 async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
-    """触发工作流执行：调用 LangGraph 引擎异步执行，返回 executionId。"""
+    """触发工作流执行：创建 execution + 入队 ARQ task，立即返回 executionId。"""
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
         if not wf:
@@ -172,14 +173,7 @@ async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
         if not wf.definition or not wf.definition.get("nodes"):
             raise BizException(ErrorCode.BAD_REQUEST, "工作流定义为空，无法执行")
 
-    from app.core.engine.executor import execute_workflow
-
-    result = await execute_workflow(
-        workflow_id=wid,
-        inputs=body.inputs or {},
-        trigger="manual",
-        user_id=me.id,
-    )
+    exec_id = await enqueue_workflow_task(wid, body.inputs or {}, "manual", str(me.id))
 
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
@@ -187,4 +181,4 @@ async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
             wf.last_run = datetime.now()
             await s.commit()
 
-    return ok(result)
+    return ok({"executionId": exec_id, "status": "running"})
