@@ -1,4 +1,7 @@
 """ARQ worker 配置 + parse_document_task（解析→分块→建树→向量化）。"""
+import time
+from datetime import datetime
+
 import os
 import tempfile
 import uuid as uuid_lib
@@ -7,6 +10,8 @@ from arq.connections import RedisSettings
 from sqlalchemy import select, update
 
 from app.config import settings
+from app.core.engine.graph_builder import GraphBuilder
+from app.core.engine.sse_bus import publish
 from app.core.parser.chunker import chunk as do_chunk
 from app.core.parser.dispatcher import parse as parse_file
 from app.core.parser.tree_builder import build_tree
@@ -15,6 +20,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document, ParseTask
 from app.models.knowledge_base import KnowledgeBase
 from app.models.tree_node import ElementPosition, TreeNode
+from app.models.workflow import Workflow, WorkflowExecution, WorkflowVersion
 from app.exceptions import BizException, ErrorCode
 from app.providers.langchain_factory import (
     build_embeddings,
@@ -32,6 +38,9 @@ REEMBED_BATCH_SIZE = 32
 async def startup(ctx):
     """worker 启动钩子。"""
     ctx["ok"] = True
+    # Phase 3: 提前初始化 checkpointer，避免首个任务冷启动
+    from app.core.agent.memory import init_checkpointer_for_worker
+    await init_checkpointer_for_worker()
 
 
 async def _set_status(doc_id: str, status: str, pct: int, error: str | None = None):
@@ -229,6 +238,143 @@ async def run_retrieval_test_task(ctx, run_id: str):
     await execute_run(run_id)
 
 
+async def execute_workflow_task(ctx, execution_id: str):
+    """ARQ 任务：从 checkpoint 执行或恢复工作流。
+
+    1. 从 DB 加载 execution + workflow definition
+    2. 构建 graph（使用 PostgresSaver 单例 checkpointer）
+    3. 检查 checkpoint：有 -> astream(None) 断点恢复；无 -> astream(initial) 全新执行
+    4. astream 循环：每个节点完成 -> publish 到 Redis Stream
+    5. 每轮检查 DB status == "cancelled" -> break
+    6. 完成/失败/暂停 -> 更新 DB + publish 最终事件
+    """
+    try:
+        # 1. 加载 execution + workflow + version
+        async with async_session() as s:
+            execution = (
+                await s.execute(
+                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+                )
+            ).scalar_one_or_none()
+            if not execution:
+                return
+
+            wf = (
+                await s.execute(select(Workflow).where(Workflow.id == execution.workflow_id))
+            ).scalar_one_or_none()
+            if not wf:
+                await _finish_execution(execution_id, "failed", error="工作流不存在")
+                await publish(execution_id, "error", {"message": "工作流不存在"})
+                return
+
+            version = wf.current_version
+            definition = wf.definition or {}
+            if version > 0:
+                ver = (
+                    await s.execute(
+                        select(WorkflowVersion)
+                        .where(WorkflowVersion.workflow_id == wf.id)
+                        .where(WorkflowVersion.version == version)
+                    )
+                ).scalar_one_or_none()
+                if ver:
+                    definition = ver.definition_snapshot or definition
+
+            exec_id = str(execution.id)
+            wf_id = str(execution.workflow_id)
+            user_id = str(execution.user_id) if execution.user_id else ""
+            inputs = execution.inputs or {}
+            debug = False
+
+        # 2. 发布开始事件
+        await publish(exec_id, "execution_start", {"total_nodes": len(definition.get("nodes", []))})
+
+        # 3. 构建 graph
+        builder = GraphBuilder()
+        graph = await builder.build(definition, exec_id, debug)
+
+        config = {"configurable": {"thread_id": exec_id}}
+
+        # 4. 检查 checkpoint
+        snapshot = await graph.aget_state(config)
+        has_checkpoint = snapshot and snapshot.next
+
+        initial = {
+            "workflow_id": wf_id, "execution_id": exec_id, "thread_id": exec_id,
+            "user_id": user_id, "variables": inputs,
+            "node_outputs": {}, "status": "running", "started_at": time.time(),
+            "node_timings": {}, "debug_mode": debug, "loop_stack": [],
+        }
+
+        stream_input = None if has_checkpoint else initial
+
+        # 5. astream 循环
+        t0 = time.perf_counter()
+        try:
+            async for ev in graph.astream(stream_input, config=config, stream_mode="updates"):
+                for nid, update in ev.items():
+                    if nid in ("__start__", "__end__"):
+                        continue
+                    await publish(exec_id, "node_start", {"nodeId": nid})
+                    await publish(exec_id, "node_complete", {
+                        "nodeId": nid,
+                        "output": str(update.get("node_outputs", {}).get(nid, {}))[:500],
+                    })
+                    if update.get("status") == "paused":
+                        await _finish_execution(exec_id, "paused")
+                        await publish(exec_id, "execution_paused", {"nodeId": nid})
+                        return
+                # 每轮检查 cancel
+                if await _is_cancelled(exec_id):
+                    await _finish_execution(exec_id, "cancelled")
+                    await publish(exec_id, "execution_cancelled", {"executionId": exec_id})
+                    return
+        except Exception as e:
+            duration = round((time.perf_counter() - t0) * 1000, 1)
+            await _finish_execution(exec_id, "failed", error=str(e), duration_ms=duration)
+            await publish(exec_id, "error", {"message": str(e)})
+            raise  # 让 ARQ 重试
+
+        # 6. 完成
+        duration = round((time.perf_counter() - t0) * 1000, 1)
+        await _finish_execution(exec_id, "completed", duration_ms=duration)
+        await publish(exec_id, "execution_complete", {"success": True, "duration_ms": duration})
+
+    except Exception as e:
+        await _finish_execution(execution_id, "failed", error=str(e))
+        await publish(execution_id, "error", {"message": str(e)})
+        raise
+
+
+async def _is_cancelled(execution_id: str) -> bool:
+    """检查 execution 是否被 cancel。"""
+    async with async_session() as s:
+        ex = (
+            await s.execute(
+                select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+            )
+        ).scalar_one_or_none()
+    return ex and ex.status == "cancelled"
+
+
+async def _finish_execution(
+    exec_id: str, status: str, error: str | None = None, duration_ms: float | None = None
+):
+    """更新执行记录状态。"""
+    async with async_session() as s:
+        ex = (
+            await s.execute(
+                select(WorkflowExecution).where(WorkflowExecution.id == exec_id)
+            )
+        ).scalar_one_or_none()
+        if ex:
+            ex.status = status
+            ex.error = error
+            ex.duration_ms = duration_ms
+            ex.completed_at = datetime.now() if status in ("completed", "failed", "cancelled") else None
+            await s.commit()
+
+
 class WorkerSettings:
     """ARQ WorkerSettings。"""
 
@@ -236,6 +382,7 @@ class WorkerSettings:
         parse_document_task,
         reembed_chunks_task,
         run_retrieval_test_task,
+        execute_workflow_task,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = startup
