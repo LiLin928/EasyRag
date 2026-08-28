@@ -5,7 +5,7 @@ Task 9 将扩展 /settings/scenes（场景 CRUD）。响应统一为 {code,messa
 from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy import delete, select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -35,7 +35,7 @@ async def list_models(group: str | None = None, me=Depends(get_current_user)):
 
 
 @router.post("/models")
-async def create_or_update_model(group: str = Query(...), body: ModelDef = Body(...), me=Depends(get_current_user)):
+async def create_or_update_model(group: str = Query(...), body: ModelDef = Body(...), me=Depends(require_roles("admin"))):
     """新增或更新（按 group+name upsert）模型配置；key 加密存储，is_default 时设为组内默认。"""
     params = dict(body.params or {})
     if body.temp is not None:
@@ -63,7 +63,7 @@ async def set_default(group: str, name: str = Query(...), me=Depends(get_current
 
 
 @router.delete("/models")
-async def delete_model(group: str = Query(...), name: str = Query(...), me=Depends(get_current_user)):
+async def delete_model(group: str = Query(...), name: str = Query(...), me=Depends(require_roles("admin"))):
     """删除指定 group+name 的模型配置。"""
     async with async_session() as s:
         await s.execute(delete(ModelConfig).where(ModelConfig.grp == group, ModelConfig.name == name))
@@ -96,7 +96,7 @@ async def get_scene(scene_id: str, me=Depends(get_current_user)):
 
 
 @router.post("/scenes")
-async def create_scene(body: SceneIn, me=Depends(get_current_user)):
+async def create_scene(body: SceneIn, me=Depends(require_roles("admin"))):
     """新建场景；code 已存在则报错。"""
     async with async_session() as s:
         if (await s.execute(select(Scene).where(Scene.code == body.code))).scalar_one_or_none():
@@ -109,7 +109,7 @@ async def create_scene(body: SceneIn, me=Depends(get_current_user)):
 
 
 @router.put("/scenes/{scene_id}")
-async def update_scene(scene_id: str, body: SceneUpdate, me=Depends(get_current_user)):
+async def update_scene(scene_id: str, body: SceneUpdate, me=Depends(require_roles("admin"))):
     """更新场景（部分更新，不改 code）。"""
     async with async_session() as s:
         sc = (await s.execute(select(Scene).where(Scene.id == scene_id))).scalar_one_or_none()
@@ -127,7 +127,7 @@ async def update_scene(scene_id: str, body: SceneUpdate, me=Depends(get_current_
 
 
 @router.delete("/scenes/{scene_id}")
-async def delete_scene(scene_id: str, me=Depends(get_current_user)):
+async def delete_scene(scene_id: str, me=Depends(require_roles("admin"))):
     """删除场景；内置场景（built_in）不可删除。"""
     async with async_session() as s:
         sc = (await s.execute(select(Scene).where(Scene.id == scene_id))).scalar_one_or_none()

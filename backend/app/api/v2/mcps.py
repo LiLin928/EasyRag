@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -36,7 +36,7 @@ async def list_(me=Depends(get_current_user)):
 
 
 @router.post("")
-async def create(body: McpCreate, me=Depends(get_current_user)):
+async def create(body: McpCreate, me=Depends(require_roles("admin"))):
     """新建 MCP 服务。"""
     m = Mcp(
         name=body.name,
@@ -65,7 +65,7 @@ async def detail(mid: str, me=Depends(get_current_user)):
 
 
 @router.put("/{mid}")
-async def update(mid: str, body: McpUpdate, me=Depends(get_current_user)):
+async def update(mid: str, body: McpUpdate, me=Depends(require_roles("admin"))):
     """更新 MCP 服务。"""
     async with async_session() as s:
         m = (await s.execute(select(Mcp).where(Mcp.id == mid))).scalar_one_or_none()
@@ -86,7 +86,7 @@ async def update(mid: str, body: McpUpdate, me=Depends(get_current_user)):
 
 
 @router.delete("/{mid}")
-async def delete(mid: str, me=Depends(get_current_user)):
+async def delete(mid: str, me=Depends(require_roles("admin"))):
     """删除 MCP 服务。"""
     async with async_session() as s:
         m = (await s.execute(select(Mcp).where(Mcp.id == mid))).scalar_one_or_none()

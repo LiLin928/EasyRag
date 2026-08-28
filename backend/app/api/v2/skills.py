@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -42,7 +42,7 @@ async def list_(me=Depends(get_current_user)):
 
 
 @router.post("")
-async def create(body: SkillCreate, me=Depends(get_current_user)):
+async def create(body: SkillCreate, me=Depends(require_roles("admin"))):
     """新建技能。"""
     sk = Skill(
         icon=body.ico,
@@ -77,7 +77,7 @@ async def detail(sid: str, me=Depends(get_current_user)):
 
 
 @router.put("/{sid}")
-async def update(sid: str, body: SkillUpdate, me=Depends(get_current_user)):
+async def update(sid: str, body: SkillUpdate, me=Depends(require_roles("admin"))):
     """更新技能。"""
     async with async_session() as s:
         sk = (await s.execute(select(Skill).where(Skill.id == sid))).scalar_one_or_none()
@@ -102,7 +102,7 @@ async def update(sid: str, body: SkillUpdate, me=Depends(get_current_user)):
 
 
 @router.delete("/{sid}")
-async def delete(sid: str, me=Depends(get_current_user)):
+async def delete(sid: str, me=Depends(require_roles("admin"))):
     """删除技能。"""
     async with async_session() as s:
         sk = (await s.execute(select(Skill).where(Skill.id == sid))).scalar_one_or_none()

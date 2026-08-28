@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from fastapi import Body
 from sqlalchemy import select
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -59,7 +59,7 @@ async def list_(me=Depends(get_current_user)):
 
 
 @router.post("")
-async def create(body: ToolCreate, me=Depends(get_current_user)):
+async def create(body: ToolCreate, me=Depends(require_roles("admin"))):
     """新建工具。"""
     t = Tool(
         name=body.name,
@@ -89,7 +89,7 @@ async def detail(tid: str, me=Depends(get_current_user)):
 
 
 @router.put("/{tid}")
-async def update(tid: str, body: ToolUpdate, me=Depends(get_current_user)):
+async def update(tid: str, body: ToolUpdate, me=Depends(require_roles("admin"))):
     """更新工具。"""
     async with async_session() as s:
         t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()
@@ -114,7 +114,7 @@ async def update(tid: str, body: ToolUpdate, me=Depends(get_current_user)):
 
 
 @router.delete("/{tid}")
-async def delete(tid: str, me=Depends(get_current_user)):
+async def delete(tid: str, me=Depends(require_roles("admin"))):
     """删除工具。"""
     async with async_session() as s:
         t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()

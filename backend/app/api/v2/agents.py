@@ -5,7 +5,7 @@ from fastapi import APIRouter, Body, Depends
 from sqlalchemy import select
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_roles
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -45,7 +45,7 @@ async def list_(me=Depends(get_current_user)):
 
 
 @router.post("")
-async def create(body: AgentCreate, me=Depends(get_current_user)):
+async def create(body: AgentCreate, me=Depends(require_roles("admin"))):
     """新建智能体。"""
     a = Agent(
         name=body.name,
@@ -79,7 +79,7 @@ async def detail(aid: str, me=Depends(get_current_user)):
 
 
 @router.put("/{aid}")
-async def update(aid: str, body: AgentUpdate, me=Depends(get_current_user)):
+async def update(aid: str, body: AgentUpdate, me=Depends(require_roles("admin"))):
     """更新智能体。"""
     async with async_session() as s:
         a = (await s.execute(select(Agent).where(Agent.id == aid))).scalar_one_or_none()
@@ -101,7 +101,7 @@ async def update(aid: str, body: AgentUpdate, me=Depends(get_current_user)):
 
 
 @router.delete("/{aid}")
-async def delete(aid: str, me=Depends(get_current_user)):
+async def delete(aid: str, me=Depends(require_roles("admin"))):
     """删除智能体。"""
     async with async_session() as s:
         a = (await s.execute(select(Agent).where(Agent.id == aid))).scalar_one_or_none()
