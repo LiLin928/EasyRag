@@ -13,6 +13,7 @@ from app.models.retrieval_testing import (
     RetrievalTestRun,
     RetrievalTestSet,
 )
+from app.models.conversation import Conversation, Feedback, Message
 
 __all__ = [
     "Base",
@@ -30,4 +31,7 @@ __all__ = [
     "RetrievalTestCaseResult",
     "RetrievalTestRun",
     "RetrievalTestSet",
+    "Conversation",
+    "Message",
+    "Feedback",
 ]

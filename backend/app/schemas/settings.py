@@ -36,6 +36,24 @@ class ModelOut(BaseModel):
     params: dict = {}
 
 
+class ModelResponse(ModelDef):
+    """模型配置响应体（对齐前端 ModelDef，key 掩码显示）。"""
+
+    @classmethod
+    def from_model(cls, m) -> "ModelResponse":
+        params = dict(m.params or {})
+        temp = params.pop("temp", None)
+        ctx = params.pop("ctx", None)
+        dim = params.pop("dim", None)
+        key_masked = "sk-****" if m.api_key_enc else None
+        return cls(
+            name=m.name, prov=m.prov, use=m.use, url=m.url,
+            temp=temp, ctx=ctx, dim=dim,
+            is_default=m.is_default,
+            key=key_masked, params=params,
+        )
+
+
 class SceneIn(BaseModel):
     """场景请求体。"""
 

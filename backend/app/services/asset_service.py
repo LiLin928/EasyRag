@@ -419,6 +419,14 @@ def _date_string(value) -> str:
     return value.date().isoformat() if value else ""
 
 
+def _format_size(size: int) -> str:
+    if size >= 1024 * 1024:
+        return f"{size / 1024 / 1024:.1f} MB"
+    if size >= 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size} B"
+
+
 def asset_output(asset, scope: str) -> dict:
     _validate_scope(scope)
     if scope == "document":
@@ -446,7 +454,11 @@ def asset_output(asset, scope: str) -> dict:
             "metadata": metadata,
             "enabled": asset.enabled,
             "recall_count": asset.recall_count,
-            "created_at": asset.created_at.isoformat() if asset.created_at else "",
+        "created_at": asset.created_at.isoformat() if asset.created_at else "",
+        "kbId": str(asset.kb_id),
+        "sizeLabel": _format_size(asset.size),
+        "elementCount": asset.element_count,
+        "createdAt": asset.created_at.isoformat() if asset.created_at else "",
         }
     return {
         "id": str(asset.id),

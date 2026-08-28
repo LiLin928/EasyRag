@@ -31,6 +31,4 @@ async def get_tree(doc_id: str, me=Depends(get_current_user)):
 
     root_node = by_parent.get("root", [None])[0] if by_parent.get("root") else None
     root_key = str(root_node.id) if root_node else "root"
-    return ok({"document_id": doc_id,
-               "title": root_node.title if root_node else "",
-               "tree": build(root_key)})
+    return ok(build(root_key))

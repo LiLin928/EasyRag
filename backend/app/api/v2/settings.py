@@ -12,6 +12,7 @@ from app.exceptions import BizException, ErrorCode
 from app.models.model_config import ModelConfig
 from app.models.scene import Scene
 from app.schemas.settings import ModelDef, ModelOut, SceneIn, SceneOut, SceneUpdate
+from app.schemas.settings import ModelDef, ModelOut, ModelResponse, SceneIn, SceneOut, SceneUpdate
 from app.security.crypto import encrypt
 from app.services.settings_service import set_default_model, upsert_model
 
@@ -20,17 +21,17 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 
 @router.get("/models")
 async def list_models(group: str | None = None, me=Depends(get_current_user)):
-    """列出模型配置，可选按 group 过滤；不回传 key，仅返回 has_key。"""
+    """列出模型配置，按分组返回 {llm:[], embed:[], rerank:[]}；key 掩码。"""
     async with async_session() as s:
         q = select(ModelConfig)
         if group:
             q = q.where(ModelConfig.grp == group)
         rows = (await s.execute(q)).scalars().all()
-    return ok([ModelOut(
-        id=str(r.id), grp=r.grp, name=r.name, prov=r.prov, use=r.use,
-        url=r.url, has_key=bool(r.api_key_enc), is_default=r.is_default,
-        params=r.params,
-    ).model_dump() for r in rows])
+    groups = {"llm": [], "embed": [], "rerank": []}
+    for r in rows:
+        entry = groups.setdefault(r.grp, [])
+        entry.append(ModelResponse.from_model(r).model_dump(by_alias=True))
+    return ok(groups)
 
 
 @router.post("/models")
@@ -51,7 +52,7 @@ async def create_or_update_model(group: str = Query(...), body: ModelDef = Body(
     saved = await upsert_model(m)
     if body.is_default:
         await set_default_model(group, body.name)
-    return ok({"name": saved.name, "grp": group})
+    return ok(ModelResponse.from_model(saved).model_dump(by_alias=True))
 
 
 @router.put("/models/{group}/default")
@@ -82,6 +83,16 @@ async def list_scenes(me=Depends(get_current_user)):
     async with async_session() as s:
         rows = (await s.execute(select(Scene).order_by(Scene.created_at))).scalars().all()
     return ok([_scene_out(r) for r in rows])
+
+
+@router.get("/scenes/{scene_id}")
+async def get_scene(scene_id: str, me=Depends(get_current_user)):
+    """获取单个场景详情。"""
+    async with async_session() as s:
+        sc = (await s.execute(select(Scene).where(Scene.id == scene_id))).scalar_one_or_none()
+        if not sc:
+            raise BizException(ErrorCode.NOT_FOUND, "场景不存在")
+    return ok(_scene_out(sc))
 
 
 @router.post("/scenes")

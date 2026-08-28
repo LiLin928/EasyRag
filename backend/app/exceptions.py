@@ -14,7 +14,7 @@ class ErrorCode(IntEnum):
     FILE_TOO_LARGE = 40002
     PRECISION_UNAVAILABLE = 40003
     UNSUPPORTED_FILE = 40004
-    LOGIN_FAILED = 40103           # 登录失败（落在认证段；前端 refresh 失败会跳登录，行为可接受）
+    LOGIN_FAILED = 40010           # 登录失败（须在 40001-40099 段，避免触发前端 40100-40199 refresh 逻辑）
     # 40100-40199 认证（40101/40102 触发前端 refresh）
     UNAUTHORIZED = 40101           # access token 过期
     REFRESH_INVALID = 40102        # refresh token 无效

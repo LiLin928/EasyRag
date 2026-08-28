@@ -8,7 +8,7 @@ class KBCreate(BaseModel):
     """知识库创建请求体。"""
 
     name: str
-    description: str | None = None
+    desc: str | None = None
     scene: str = "general"
     cover: str | None = None
 
@@ -17,7 +17,7 @@ class KBUpdate(BaseModel):
     """知识库更新请求体（部分更新）。"""
 
     name: str | None = None
-    description: str | None = None
+    desc: str | None = None
     scene: str | None = None
     cover: str | None = None
 
@@ -32,7 +32,14 @@ class KBOut(BaseModel):
     cover: str | None = None
     doc_count: int = 0
     total_size: int = 0
+    chunk_count: int = 0
+    last_test_at: str | None = None
     created_at: str
+    # camelCase aliases for legacy frontend
+    desc: str = ""
+    docCount: int = 0
+    totalSize: str = ""
+    createdAt: str = ""
 
 
 class MetadataFieldCreate(BaseModel):

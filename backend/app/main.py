@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.exceptions import BizException
 from app.security.init_admin import ensure_admin
-from app.api.v2 import assets, auth, documents, elements_list, health, knowledge, metadata, parse_tasks, retrieval, retrieval_settings, retrieval_testing, settings as settings_api, tree
+from app.api.v2 import assets, auth, chat, documents, elements, elements_list, feedback, health, knowledge, metadata, parse_tasks, retrieval, retrieval_settings, retrieval_testing, scenes, settings as settings_api, tree
 from app.logging import setup_logging, new_request_id
 
 setup_logging()
@@ -75,6 +75,10 @@ app.include_router(settings_api.router, prefix=settings.api_prefix)
 app.include_router(documents.router, prefix=settings.api_prefix)
 app.include_router(tree.router, prefix=settings.api_prefix)
 app.include_router(elements_list.router, prefix=settings.api_prefix)
+app.include_router(chat.router, prefix=settings.api_prefix)
+app.include_router(scenes.router, prefix=settings.api_prefix)
+app.include_router(feedback.router, prefix=settings.api_prefix)
+app.include_router(elements.router, prefix=settings.api_prefix)
 app.include_router(health.router)
 
 
