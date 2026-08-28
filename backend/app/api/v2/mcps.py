@@ -99,10 +99,18 @@ async def delete(mid: str, me=Depends(get_current_user)):
 
 @router.post("/{mid}/test")
 async def test(mid: str, me=Depends(get_current_user)):
-    """测试 MCP 连接（stub — 返回模拟结果）。"""
+    """测试 MCP 连接（真客户端，更新 status/tool_count）。"""
+    from app.core.agent.tool_adapters.mcp_tools import test_connection
     async with async_session() as s:
         m = (await s.execute(select(Mcp).where(Mcp.id == mid))).scalar_one_or_none()
     if not m:
         raise BizException(ErrorCode.NOT_FOUND, "MCP 服务不存在")
-    # TODO: 实现实际 stdio / SSE 连接探测
-    return ok({"success": True, "toolCount": m.tool_count, "tools": [], "duration": 0.0})
+    result = await test_connection(m)
+    # 回写 status / tool_count
+    async with async_session() as s:
+        m2 = (await s.execute(select(Mcp).where(Mcp.id == mid))).scalar_one_or_none()
+        if m2:
+            m2.status = "on" if result["success"] else "err"
+            m2.tool_count = result["toolCount"]
+            await s.commit()
+    return ok(result)

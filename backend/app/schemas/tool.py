@@ -23,6 +23,7 @@ class ToolCreate(BaseModel):
     enabled: bool = True
     params: list[ToolParam] = []
     auth: ToolAuth = ToolAuth()
+    config: dict[str, Any] = {}
 
 
 class ToolUpdate(BaseModel):
@@ -33,6 +34,7 @@ class ToolUpdate(BaseModel):
     enabled: bool | None = None
     params: list[ToolParam] | None = None
     auth: ToolAuth | None = None
+    config: dict[str, Any] | None = None
 
 
 class ToolOut(BaseModel):
@@ -45,6 +47,7 @@ class ToolOut(BaseModel):
     params: list[ToolParam]
     auth: ToolAuth
     createdAt: str | None = None
+    config: dict[str, Any] = {}
 
 
 class ToolTestResult(BaseModel):

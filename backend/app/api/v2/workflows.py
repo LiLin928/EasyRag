@@ -164,21 +164,27 @@ async def duplicate(wid: str, me=Depends(get_current_user)):
 
 @router.post("/{wid}/execute")
 async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
-    """触发工作流执行（stub — 创建 execution 记录，返回 executionId）。"""
+    """触发工作流执行：调用 LangGraph 引擎异步执行，返回 executionId。"""
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
         if not wf:
             raise BizException(ErrorCode.NOT_FOUND, "工作流不存在")
-        execution = WorkflowExecution(
-            workflow_id=wf.id,
-            version=wf.current_version,
-            user_id=me.id,
-            status="pending",
-            trigger_type="manual",
-            started_at=datetime.now(),
-        )
-        s.add(execution)
-        await s.commit()
-        await s.refresh(execution)
-    # TODO: 启动 LangGraph 执行引擎
-    return ok({"executionId": str(execution.id)})
+        if not wf.definition or not wf.definition.get("nodes"):
+            raise BizException(ErrorCode.BAD_REQUEST, "工作流定义为空，无法执行")
+
+    from app.core.engine.executor import execute_workflow
+
+    result = await execute_workflow(
+        workflow_id=wid,
+        inputs=body.inputs or {},
+        trigger="manual",
+        user_id=me.id,
+    )
+
+    async with async_session() as s:
+        wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
+        if wf:
+            wf.last_run = datetime.now()
+            await s.commit()
+
+    return ok(result)

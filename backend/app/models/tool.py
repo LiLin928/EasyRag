@@ -23,3 +23,4 @@ class Tool(Base, UUIDPk, TimestampMixin):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     params: Mapped[Optional[list]] = mapped_column(JSONB, default=list)
     auth: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)  # {mode, key}
+    config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)  # HTTP: {method,url,...}; Python: {code}

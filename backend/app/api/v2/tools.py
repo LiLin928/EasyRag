@@ -3,6 +3,7 @@
 auth.key 在落库前经 Fernet 加密，读取时解密后返回（前端负责掩码显示）。
 """
 from fastapi import APIRouter, Depends
+from fastapi import Body
 from sqlalchemy import select
 
 from app.api.deps import get_current_user
@@ -44,6 +45,7 @@ def _out(t: Tool) -> dict:
         "enabled": t.enabled,
         "params": t.params or [],
         "auth": _decrypt_auth(t.auth) or {"mode": "none", "key": ""},
+        "config": t.config or {},
         "createdAt": t.created_at.isoformat() if t.created_at else None,
     }
 
@@ -67,6 +69,7 @@ async def create(body: ToolCreate, me=Depends(get_current_user)):
         enabled=body.enabled,
         params=[p.model_dump() for p in body.params],
         auth=_encrypt_auth(body.auth.model_dump()) if body.auth else None,
+        config=body.config or None,
     )
     async with async_session() as s:
         s.add(t)
@@ -103,6 +106,8 @@ async def update(tid: str, body: ToolUpdate, me=Depends(get_current_user)):
             t.params = [p.model_dump() for p in body.params]
         if body.auth is not None:
             t.auth = _encrypt_auth(body.auth.model_dump())
+        if body.config is not None:
+            t.config = body.config
         await s.commit()
         await s.refresh(t)
     return ok(_out(t))
@@ -121,11 +126,7 @@ async def delete(tid: str, me=Depends(get_current_user)):
 
 
 @router.post("/{tid}/test")
-async def test(tid: str, me=Depends(get_current_user)):
-    """测试工具（stub — 返回模拟结果）。"""
-    async with async_session() as s:
-        t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()
-    if not t:
-        raise BizException(ErrorCode.NOT_FOUND, "工具不存在")
-    # TODO: 实现实际 HTTP 调用 / Python 函数执行
-    return ok({"success": True, "data": f"工具 {t.name} 测试通过（stub）", "duration": 0.0})
+async def test(tid: str, body: dict = Body(default={}), me=Depends(get_current_user)):
+    """测试工具执行（HTTP / 内置 / Python）。"""
+    from app.services.tool_service import execute_tool
+    return ok(await execute_tool(tid, body.get("args", {})))

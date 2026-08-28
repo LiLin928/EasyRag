@@ -1,7 +1,10 @@
 """todos 路由：工作流人工待办列表 + 提交/拒绝。
 
 cd（是否已超时）与 deadline（剩余秒数）由 deadline 时间戳实时计算。
+提交/拒绝后恢复暂停的工作流执行。
 """
+import asyncio
+
 from datetime import datetime
 
 from fastapi import APIRouter, Depends
@@ -11,9 +14,38 @@ from app.api.deps import get_current_user
 from app.api.response import ok
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
-from app.models.workflow import WorkflowTodo
+from app.models.workflow import WorkflowExecution, WorkflowTodo
 
 router = APIRouter(prefix="/todos", tags=["todos"])
+
+
+def _try_resume_workflow(execution_id, user_id):
+    """恢复暂停的工作流执行（后台异步触发）。"""
+
+    async def _resume():
+        from app.core.engine.executor import execute_workflow
+        from app.models.workflow import Workflow
+
+        async with async_session() as s:
+            ex = (
+                await s.execute(
+                    select(WorkflowExecution).where(WorkflowExecution.id == execution_id)
+                )
+            ).scalar_one_or_none()
+            if not ex or ex.status != "paused":
+                return
+            wf = (
+                await s.execute(select(Workflow).where(Workflow.id == ex.workflow_id))
+            ).scalar_one_or_none()
+            if not wf:
+                return
+            ex.status = "running"
+            await s.commit()
+            inputs = ex.inputs or {}
+
+        await execute_workflow(str(wf.id), inputs, trigger="manual", user_id=user_id)
+
+    asyncio.create_task(_resume())
 
 
 def _out(td: WorkflowTodo) -> dict:
@@ -62,7 +94,7 @@ async def detail(tid: str, me=Depends(get_current_user)):
 
 @router.post("/{tid}/submit")
 async def submit(tid: str, body: dict, me=Depends(get_current_user)):
-    """提交待办表单数据，状态改 done。"""
+    """提交待办表单数据，状态改 done，并恢复暂停的工作流执行。"""
     async with async_session() as s:
         td = (
             await s.execute(select(WorkflowTodo).where(WorkflowTodo.id == tid))
@@ -74,12 +106,15 @@ async def submit(tid: str, body: dict, me=Depends(get_current_user)):
         td.submitted_at = datetime.now()
         await s.commit()
         await s.refresh(td)
+
+    _try_resume_workflow(td.execution_id, me.id)
+
     return ok(_out(td))
 
 
 @router.post("/{tid}/reject")
 async def reject(tid: str, me=Depends(get_current_user)):
-    """拒绝待办，状态改 rejected。"""
+    """拒绝待办，状态改 rejected，并标记工作流执行为失败。"""
     async with async_session() as s:
         td = (
             await s.execute(select(WorkflowTodo).where(WorkflowTodo.id == tid))
@@ -89,4 +124,17 @@ async def reject(tid: str, me=Depends(get_current_user)):
         td.status = "rejected"
         await s.commit()
         await s.refresh(td)
+
+        # 标记关联的执行记录为失败
+        ex = (
+            await s.execute(
+                select(WorkflowExecution).where(WorkflowExecution.id == td.execution_id)
+            )
+        ).scalar_one_or_none()
+        if ex and ex.status == "paused":
+            ex.status = "failed"
+            ex.error = f"人工节点 {td.node_id} 被拒绝"
+            ex.completed_at = datetime.now()
+            await s.commit()
+
     return ok(_out(td))

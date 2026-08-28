@@ -1,8 +1,9 @@
 """agents 路由：/agents CRUD。"""
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy import select
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import get_current_user
 from app.api.response import ok
@@ -107,5 +108,26 @@ async def delete(aid: str, me=Depends(get_current_user)):
         if not a:
             raise BizException(ErrorCode.NOT_FOUND, "智能体不存在")
         await s.delete(a)
-        await s.commit()
+    await s.commit()
     return ok({"success": True})
+
+
+@router.post("/{aid}/chat")
+async def chat(aid: str, body: dict = Body(default={}), me=Depends(get_current_user)):
+    """智能体对话 SSE 流。"""
+    from app.services.agent_service import AgentService
+    svc = AgentService()
+
+    async def gen():
+        try:
+            async for ev in svc.chat(aid, body.get("question", ""), me.id):
+                yield ev
+        except Exception as e:
+            from app.sse.emitter import sse_event
+            yield sse_event("error", {"code": 50001, "message": str(e)})
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
