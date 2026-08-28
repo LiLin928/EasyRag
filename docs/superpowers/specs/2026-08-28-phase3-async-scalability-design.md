@@ -3,6 +3,8 @@
 > **日期**：2026-08-28
 > **模块**：工作流异步执行 / Redis Stream SSE / PostgresSaver 持久化
 > **状态**：已批准，待生成实施计划
+>
+> **实现状态**：全部 6 个 Task 已完成并测试通过（2026-08-28）
 > **关联文档**：
 > - `docs/backend-plans/后端设计方案-Phase2-3详细设计.md` §10（Phase 3 spec）
 > - `docs/backend-plans/后端开发设计方案.md` 附录 E（实现进度）
@@ -345,11 +347,41 @@ Agent 调用工作流工具时，阻塞在轮询循环里等待 ARQ worker 完�
 
 ---
 
+## 十二、实现进度
+
+> 全部 6 个 Task 已按 TDD 流程完成，测试全部通过（13/13 PASS）。
+
+| Task | 内容 | Commit | 测试文件 | 状态 |
+|------|------|--------|----------|------|
+| 1 | ARQ enqueue 工具函数 `enqueue_workflow_task` | `d66c6c7` | `tests/test_arq_client.py` (1 test) | 已完成 |
+| 2 | Redis Stream SSE bus 重写 (`publish`/`subscribe`) | `5d74667` | `tests/test_sse_bus_redis.py` (2 tests) | 已完成 |
+| 3 | PostgresSaver checkpointer 单例统一 | `91c54b6` | `tests/test_checkpointer_singleton.py` (1 test) | 已完成 |
+| 4 | ARQ 工作流任务 + checkpoint resume + cancel 检测 | `ee3c859` | `tests/test_arq_workflow_task.py` (3 tests) | 已完成 |
+| 5 | API 端点改造 (enqueue + Redis Stream SSE + DB cancel) | `3cb719d` | `tests/test_workflow_executions_api.py` (4 tests) | 已完成 |
+| 6 | Agent 工具调用改造 (enqueue + DB 轮询 60s 超时) | `63be1ca` | `tests/test_agent_workflow_polling.py` (2 tests) | 已完成 |
+
+### 额外修复
+
+- **FastAPI 版本升级** 0.104.1 → 0.141.1 — 原安装版本与 Starlette 1.x 不兼容（`APIRouter.__init__` 传递 `on_startup`/`on_shutdown` 已被移除），导致 Task 5 测试无法 import API 路由模块。升级后根因消除。
+- **`ExecuteRequest` schema 补字段** — `app/schemas/workflow.py` 的 `ExecuteRequest` 缺少 `inputs` 字段，而 `execute` 端点使用 `body.inputs`。已添加 `inputs: dict | None = None`。
+
+### 关键实现细节确认
+
+- SSE bus 接口：`publish(execution_id, event, data)` → XADD MAXLEN 500；`subscribe(execution_id)` → XRANGE + XREAD BLOCK 0 async generator
+- `enqueue_workflow_task(workflow_id, inputs, trigger, user_id) -> str` — API 和 Agent 共用
+- `execute_workflow_task(ctx, execution_id)` — ARQ worker 唯一执行入口
+- Cancel 机制：API 仅更新 DB `status="cancelled"`，worker `_is_cancelled` 轮询检测后 break
+- Resume：`create_pool` + `enqueue_job("execute_workflow_task", execution_id=eid)`，worker `aget_state` 检测 checkpoint → `astream(None)` 断点恢复
+- Agent `_workflow_tool`：`enqueue_workflow_task` + 1s 间隔轮询 `_get_execution`，60s 超时
+
+---
+
 ## 文档版本记录
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | V1.0 | 2026-08-28 | Phase 3 子项目 C 设计方案：ARQ 工作流集成 + Redis Stream SSE + PostgresSaver 持久化 |
+| V1.1 | 2026-08-28 | 全部 6 个 Task 实现完成，添加实现进度章节；FastAPI 升级 0.141.1 |
 
 ---
 
