@@ -18,6 +18,7 @@ from app.models.tool import Tool
 from app.models.skill import Skill
 from app.models.mcp import Mcp
 from app.models.agent import Agent
+from app.models.audit_log import AuditLog
 from app.models.workflow import (
     Workflow,
     WorkflowExecution,
@@ -49,6 +50,7 @@ __all__ = [
     "Skill",
     "Mcp",
     "Agent",
+    "AuditLog",
     "Workflow",
     "WorkflowVersion",
     "WorkflowExecution",
