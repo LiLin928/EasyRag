@@ -36,7 +36,7 @@ async def test_upload_returns_task_and_doc(monkeypatch, tmp_path):
     monkeypatch.setattr("app.config.settings.storage_local_dir", str(tmp_path))
     fake_pool = AsyncMock()
     fake_pool.enqueue_job = AsyncMock()
-    with patch("app.api.v2.documents.create_pool", AsyncMock(return_value=fake_pool)):
+    with patch("app.api.v2.assets.create_pool", AsyncMock(return_value=fake_pool)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
             tok = await _token()
             r = await c.post("/api/v2/documents/upload",

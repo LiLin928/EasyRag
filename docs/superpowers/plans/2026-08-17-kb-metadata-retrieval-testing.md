@@ -108,7 +108,7 @@ frontend/src/views/knowledge/
 - Create: `backend/alembic/versions/b71d0c8f4aa2_kb_metadata_retrieval_testing.py`
 - Test: `backend/tests/test_kb_metadata_models.py`
 
-- [ ] **Step 1: Write failing persistence tests**
+- [x] **Step 1: Write failing persistence tests**
 
 Create `backend/tests/test_kb_metadata_models.py`:
 
@@ -234,7 +234,7 @@ async def test_retrieval_test_tables_persist():
         assert saved_result.status == "pending"
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run from `backend/`:
 
@@ -244,7 +244,7 @@ pytest tests/test_kb_metadata_models.py -v
 
 Expected: import failures for `app.models.metadata` and `app.models.retrieval_testing`, plus unknown model fields.
 
-- [ ] **Step 3: Add model fields and new ORM models**
+- [x] **Step 3: Add model fields and new ORM models**
 
 Use these exact column definitions.
 
@@ -339,7 +339,7 @@ RetrievalTestCaseResult: id, run_id, case_id, query, status, expected_doc_ids,
 
 Add both modules to `backend/app/models/__init__.py`.
 
-- [ ] **Step 4: Create migration `b71d0c8f4aa2`**
+- [x] **Step 4: Create migration `b71d0c8f4aa2`**
 
 The migration must:
 
@@ -362,7 +362,7 @@ revision = "b71d0c8f4aa2"
 down_revision = "71dc230762db"
 ```
 
-- [ ] **Step 5: Run model tests and migration checks**
+- [x] **Step 5: Run model tests and migration checks**
 
 ```powershell
 pytest tests/test_kb_metadata_models.py -v
@@ -373,7 +373,7 @@ alembic upgrade head
 
 Expected: all commands pass; downgrade drops only objects created by this revision and restores the previous schema.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add backend/app/models backend/alembic/versions/b71d0c8f4aa2_kb_metadata_retrieval_testing.py backend/tests/test_kb_metadata_models.py
@@ -392,7 +392,7 @@ git commit -m "feat: add KB metadata and retrieval testing schema"
 - Test: `backend/tests/test_metadata_service.py`
 - Test: `backend/tests/test_metadata_api.py`
 
-- [ ] **Step 1: Write failing service tests**
+- [x] **Step 1: Write failing service tests**
 
 Create `backend/tests/test_metadata_service.py`:
 
@@ -516,7 +516,7 @@ async def test_custom_field_delete_requires_force_when_values_exist():
     assert impact == {"success": True, "affected_count": 1}
 ```
 
-- [ ] **Step 2: Implement `metadata_service.py`**
+- [x] **Step 2: Implement `metadata_service.py`**
 
 Public API:
 
@@ -560,7 +560,7 @@ Runtime seeding:
 2. `knowledge_service.create_kb` calls `ensure_default_fields(kb_id)` in the same transaction;
 3. `GET /knowledge/{kb_id}/metadata-fields` also calls `ensure_default_fields(kb_id)` idempotently, covering databases that received the schema outside Alembic.
 
-- [ ] **Step 3: Add schemas and routes**
+- [x] **Step 3: Add schemas and routes**
 
 Add to `backend/app/schemas/knowledge.py`:
 
@@ -633,7 +633,7 @@ async def delete_field(kb_id: str, field_id: str, force: bool = False,
 
 Use `MetadataFieldReorder(ids: list[str])` to update only `sort_order`. Register the router in `main.py`.
 
-- [ ] **Step 4: Write API integration test**
+- [x] **Step 4: Write API integration test**
 
 `backend/tests/test_metadata_api.py` must create an owned KB, then verify:
 
@@ -657,7 +657,7 @@ assert r.json()["data"] == {"success": True, "affected_count": 0}
 
 Also verify a second user receives `FORBIDDEN`, duplicate `scope+key` returns `PARAM_ERROR`, and built-in deletion returns `FORBIDDEN`.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 pytest tests/test_metadata_service.py tests/test_metadata_api.py -v
@@ -676,7 +676,7 @@ git commit -m "feat: add KB metadata schema management"
 - Modify: `backend/app/api/v2/documents.py` only as a compatibility re-export
 - Test: `backend/tests/test_asset_metadata_api.py`
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests**
 
 Create `backend/tests/test_asset_metadata_api.py` with these exact assertions:
 
@@ -720,7 +720,7 @@ async def test_chunk_metadata_and_enabled_filter():
 
 Add the same test style for `GET /documents?enabled=false`, document batch status, chunk batch metadata, missing required metadata, unauthorized access, and illegal metadata key rejection.
 
-- [ ] **Step 2: Implement asset list and mutation service**
+- [x] **Step 2: Implement asset list and mutation service**
 
 Create `backend/app/services/asset_service.py`. Its public functions are:
 
@@ -750,7 +750,7 @@ Implementation rules:
 8. `asset_output` composes document `metadata` as virtual physical built-ins plus stored JSON metadata. Example: `document_name` comes from `Document.name`, `upload_date` from `created_at`, and `source` from `metadata_["source"]`. Chunk output has no virtual built-ins in V1.
 9. Metadata list filters are schema-validated before querying; unknown keys and non-filterable fields return `PARAM_ERROR`.
 
-- [ ] **Step 3: Consolidate routes**
+- [x] **Step 3: Consolidate routes**
 
 Move the existing upload, list, detail, and delete document endpoints from `documents.py` into `assets.py`, then update their bodies to call `asset_service`. Make `documents.py` contain only:
 
@@ -812,7 +812,7 @@ async def batch_chunk_status(body: BatchStatus, me=Depends(get_current_user))
 
 Define `MetadataUpdate(metadata: dict)`, `BatchMetadata(ids: list[str], metadata: dict)`, and `BatchStatus(ids: list[str], enabled: bool)`. Parse `document_metadata` and `chunk_metadata` with `json.loads`; malformed JSON is `PARAM_ERROR`.
 
-- [ ] **Step 4: Run focused tests and commit**
+- [x] **Step 4: Run focused tests and commit**
 
 ```powershell
 pytest tests/test_asset_metadata_api.py tests/test_documents_api.py -v
@@ -833,7 +833,7 @@ git commit -m "feat: manage document and chunk metadata"
 - Test: `backend/tests/test_retrieval_settings_service.py`
 - Test: `backend/tests/test_retrieval_settings_api.py`
 
-- [ ] **Step 1: Write failing service and API tests**
+- [x] **Step 1: Write failing service and API tests**
 
 Create `backend/tests/test_retrieval_settings_service.py`:
 
@@ -1234,7 +1234,7 @@ async def test_retrieval_settings_get_update_clear_and_validation():
             await s.commit()
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run from `backend/`:
 
@@ -1244,7 +1244,7 @@ pytest tests/test_retrieval_settings_service.py tests/test_retrieval_settings_ap
 
 Expected: service tests fail importing `app.services.retrieval_settings_service`; API tests return `404` before the router is registered.
 
-- [ ] **Step 3: Implement effective settings resolution**
+- [x] **Step 3: Implement effective settings resolution**
 
 Create `backend/app/services/retrieval_settings_service.py` with:
 
@@ -1339,7 +1339,7 @@ Validation rules:
 
 `rebuild_required` is true when saving a different enabled embedding model ID and the KB has chunks with non-null embeddings.
 
-- [ ] **Step 4: Refactor provider construction to accept explicit configs**
+- [x] **Step 4: Refactor provider construction to accept explicit configs**
 
 In `backend/app/providers/langchain_factory.py`, retain the existing public functions and add:
 
@@ -1360,7 +1360,7 @@ return await build_embeddings_from_config(cfg)
 
 Extract the provider branches currently inside `build_embeddings` into a helper that accepts `cfg`; `build_embeddings_from_config` validates `params.dim == 1024` when present. `ApiReranker` receives the decrypted key inside the provider layer only.
 
-- [ ] **Step 5: Add schemas and settings API**
+- [x] **Step 5: Add schemas and settings API**
 
 Add:
 
@@ -1407,7 +1407,7 @@ async def update_settings(kb_id: str, body: RetrievalSettingsUpdate,
 
 The API test must cover GET source labels, successful PUT, forbidden access for another user, invalid model group, invalid dimension, invalid weight sum, and unknown setting key. It must also assert all three null/omission contracts: an omitted field does not change its stored value; `embedding_model_id: null` or `rerank_model_id: null` clears only that binding; `retrieval_config: null` clears all KB overrides; and a supplied object updates only keys present in that object.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 ```powershell
 pytest tests/test_retrieval_settings_service.py tests/test_retrieval_settings_api.py -v
@@ -1428,7 +1428,7 @@ git commit -m "feat: add per-KB retrieval settings"
 - Test: `backend/tests/test_retrieval_search_filters.py`
 - Test: `backend/tests/test_pipeline.py`
 
-- [ ] **Step 1: Write failing filter tests**
+- [x] **Step 1: Write failing filter tests**
 
 Create `backend/tests/test_retrieval_search_filters.py` with a real PostgreSQL fixture that inserts one KB, two documents, and four chunks:
 
@@ -1481,7 +1481,7 @@ async def test_fulltext_uses_same_predicates():
 
 Also assert numeric `gte/lte`, date `gte/lte`, boolean equality, unknown retrieval-filterable key rejection, select value not in options rejection, and raw key interpolation rejection.
 
-- [ ] **Step 2: Implement safe metadata predicate builder**
+- [x] **Step 2: Implement safe metadata predicate builder**
 
 Create `backend/app/core/retrieval/metadata_filter.py`:
 
@@ -1522,7 +1522,7 @@ source -> documents.metadata ->> 'source'
 
 All custom fields use `jsonb ->> 'key'`; numeric and date casts occur only after schema type validation.
 
-- [ ] **Step 3: Extend vector and fulltext SQL**
+- [x] **Step 3: Extend vector and fulltext SQL**
 
 Change both search functions to share a `SELECT ... FROM chunks c JOIN documents d` shape:
 
@@ -1568,7 +1568,7 @@ Result dictionaries use:
 
 Set the unused score to `None`, not `0`, so debug output can distinguish absent channels.
 
-- [ ] **Step 4: Adapt pipeline to modes, explicit models, and filters**
+- [x] **Step 4: Adapt pipeline to modes, explicit models, and filters**
 
 Refactor `RetrievalPipeline` construction to:
 
@@ -1611,7 +1611,7 @@ Behavior:
 
 Add `HybridRetriever.from_knowledge_base(kb_id, user_id)` later only when chat integration consumes it; do not add speculative adapters in this task.
 
-- [ ] **Step 5: Update debug `/search` API**
+- [x] **Step 5: Update debug `/search` API**
 
 `SearchReq` becomes:
 
@@ -1630,7 +1630,7 @@ When exactly one KB is supplied, resolve its settings and explicit models. With 
 
 Extend the existing API test to patch the pipeline boundary and verify method/filter parameters are passed, plus one DB-backed test that disabled documents/chunks do not return.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 ```powershell
 pytest tests/test_retrieval_search_filters.py tests/test_pipeline.py tests/test_vector_search.py tests/test_fulltext_search.py tests/test_retrieval_api.py -v
@@ -1648,7 +1648,7 @@ git commit -m "feat: add metadata-aware KB retrieval"
 - Modify: `backend/app/schemas/knowledge.py`
 - Test: `backend/tests/test_reembedding_worker.py`
 
-- [ ] **Step 1: Write failing worker and API tests**
+- [x] **Step 1: Write failing worker and API tests**
 
 Create `backend/tests/test_reembedding_worker.py` with two real-DB tests.
 
@@ -1705,7 +1705,7 @@ Add an API test that:
 4. asserts code 0 and `enqueue_job.assert_called_once_with("reembed_chunks_task", kb_id, doc_ids, [])`;
 5. verifies another user's KB returns `FORBIDDEN`.
 
-- [ ] **Step 2: Resolve the KB embedding model in the worker**
+- [x] **Step 2: Resolve the KB embedding model in the worker**
 
 Refactor `backend/app/worker/app.py`:
 
@@ -1727,7 +1727,7 @@ During `parse_document_task`:
 
 If the bound model disappears or is disabled before parsing, the document transitions to `failed` with a readable error such as `知识库绑定的 Embedding 模型不可用`.
 
-- [ ] **Step 3: Add the ARQ reindex task**
+- [x] **Step 3: Add the ARQ reindex task**
 
 In the same worker module:
 
@@ -1753,7 +1753,7 @@ class WorkerSettings:
     functions = [parse_document_task, reembed_chunks_task]
 ```
 
-- [ ] **Step 4: Add the reindex API**
+- [x] **Step 4: Add the reindex API**
 
 In `backend/app/schemas/knowledge.py`:
 
@@ -1789,7 +1789,7 @@ async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
 
 Validate UUID strings before enqueueing; an empty selector means all chunks in the KB.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 ```powershell
 pytest tests/test_reembedding_worker.py tests/test_asset_metadata_api.py -v
@@ -1810,7 +1810,7 @@ git commit -m "feat: bind KB embedding to indexing and reindexing"
 - Test: `backend/tests/test_retrieval_test_metrics.py`
 - Test: `backend/tests/test_retrieval_testing_api.py`
 
-- [ ] **Step 1: Write failing pure metric tests**
+- [x] **Step 1: Write failing pure metric tests**
 
 Create `backend/tests/test_retrieval_test_metrics.py`:
 
@@ -1885,7 +1885,7 @@ def test_nearest_rank_percentile_edge_cases():
     assert nearest_rank_percentile([10, 20, 30, 40], 95) == 40
 ```
 
-- [ ] **Step 2: Implement pure metrics**
+- [x] **Step 2: Implement pure metrics**
 
 `backend/app/core/retrieval/test_metrics.py` contains only pure functions and no DB/import side effects.
 
@@ -1930,7 +1930,7 @@ def evaluate_case(expected_doc_ids: list[str], result_docs: list[str], *, k: int
 
 Use nearest-rank percentiles over successful cases only. Zero denominators return `0.0`, while missing latency returns `None`.
 
-- [ ] **Step 3: Add schemas**
+- [x] **Step 3: Add schemas**
 
 `backend/app/schemas/retrieval_testing.py`:
 
@@ -1971,7 +1971,7 @@ class TestCaseBatchStatus(BaseModel):
 
 Response models serialize UUIDs to strings, JSONB arrays/objects unchanged, and timestamps as ISO strings. `expected_chunk_ids` remains visible in V1 API payloads but is excluded from UI forms and metric calculations.
 
-- [ ] **Step 4: Implement set and case CRUD service**
+- [x] **Step 4: Implement set and case CRUD service**
 
 `backend/app/services/retrieval_test_service.py` public functions:
 
@@ -1991,7 +1991,7 @@ async def list_runs(test_set_id, user_id)
 
 Every read and mutation joins through `RetrievalTestSet -> KnowledgeBase` and checks `knowledge_bases.user_id`. Expected document IDs must belong to the same KB; `query` cannot be blank; names are limited to 100 characters; tags are deduplicated and limited to 20 entries.
 
-- [ ] **Step 5: Add CRUD API routes**
+- [x] **Step 5: Add CRUD API routes**
 
 Create `backend/app/api/v2/retrieval_testing.py`:
 
@@ -2011,7 +2011,7 @@ Create `backend/app/api/v2/retrieval_testing.py`:
 
 List responses use `{ list, total }`. A case response includes `first_expected_hit_rank`, `status`, `latency_ms`, and `last_run_at` only when joined from run results; CRUD case responses omit those run fields.
 
-- [ ] **Step 6: Write CRUD API integration tests**
+- [x] **Step 6: Write CRUD API integration tests**
 
 `backend/tests/test_retrieval_testing_api.py` must cover:
 
@@ -2022,7 +2022,7 @@ List responses use `{ list, total }`. A case response includes `first_expected_h
 5. archived sets are hidden by default and returned with `include_archived=true`;
 6. run history endpoint returns an empty list initially.
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 ```powershell
 pytest tests/test_retrieval_test_metrics.py tests/test_retrieval_testing_api.py -v
@@ -2041,11 +2041,11 @@ git commit -m "feat: add saved retrieval test sets"
 - Test: `backend/tests/test_retrieval_testing_api.py`
 - Test: `backend/tests/test_retrieval_test_metrics.py`
 
-- [ ] **Step 1: Verify the one-active-run database constraint**
+- [x] **Step 1: Verify the one-active-run database constraint**
 
 The Task 1 migration must already contain `uq_retrieval_test_runs_active` as a partial unique index on `test_set_id` where `status IN ('pending', 'running')`. Confirm it exists before adding run code; this protects the single-active-run rule even under concurrent API requests.
 
-- [ ] **Step 2: Extend run service tests**
+- [x] **Step 2: Extend run service tests**
 
 Add to `backend/tests/test_retrieval_testing_api.py`:
 
@@ -2088,7 +2088,7 @@ Add tests for:
 5. `GET /runs/{run_id}/cases` hides pending internals unless the caller owns the KB;
 6. cancel changes `running/pending` to `canceled` and unfinished results to `skipped`.
 
-- [ ] **Step 3: Implement run creation**
+- [x] **Step 3: Implement run creation**
 
 In `backend/app/services/retrieval_test_service.py` add:
 
@@ -2129,7 +2129,7 @@ async def cancel_run(run_id: str, user_id) -> RetrievalTestRun
 
 The snapshot never contains API keys, encrypted values, URLs, or full provider config.
 
-- [ ] **Step 4: Implement the ARQ run task**
+- [x] **Step 4: Implement the ARQ run task**
 
 Add to `backend/app/worker/app.py`:
 
@@ -2163,7 +2163,7 @@ Register it in `WorkerSettings.functions`.
 
 Cancellation wins by checking run status before each case; if it changed to `canceled`, mark only still-pending results as `skipped` and return.
 
-- [ ] **Step 5: Add run routes**
+- [x] **Step 5: Add run routes**
 
 Extend `backend/app/api/v2/retrieval_testing.py`:
 
@@ -2206,7 +2206,7 @@ async def start_run(set_id: str, body: RetrievalRunCreate,
 }
 ```
 
-- [ ] **Step 6: Add execution test with mocked pipeline**
+- [x] **Step 6: Add execution test with mocked pipeline**
 
 Patch `RetrievalPipeline.search` in the worker module and verify:
 
@@ -2219,7 +2219,7 @@ Patch `RetrievalPipeline.search` in the worker module and verify:
 
 Use distinct returned document IDs to verify final ranks, vector/keyword ranks, RRF score, and rerank score are persisted in candidate `results`.
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 ```powershell
 pytest tests/test_retrieval_testing_api.py tests/test_retrieval_test_metrics.py -v
@@ -2241,7 +2241,7 @@ git commit -m "feat: run asynchronous retrieval regression tests"
 
 Do not add a frontend dependency. Continue using Axios, Pinia, TypeScript, and the existing request/mock adapter.
 
-- [ ] **Step 1: Define final snake-case API types**
+- [x] **Step 1: Define final snake-case API types**
 
 Add these contracts to `frontend/src/types/knowledge.ts`:
 
@@ -2415,7 +2415,7 @@ export interface RetrievalTestRun {
 
 Do not map metadata values to `string`; preserve JSON types. Keep the existing `TreeNode`, `DocElement`, and `ParseTask` types. During this task, retain temporary compatibility aliases for the legacy knowledge/detail page, then remove them in Task 10.
 
-- [ ] **Step 2: Add API functions**
+- [x] **Step 2: Add API functions**
 
 Extend `frontend/src/api/knowledge.ts`:
 
@@ -2470,7 +2470,7 @@ export function reembedChunks(kbId: string, documentIds: string[], chunkIds: str
 
 Add the same style for retrieval settings, test sets, cases, runs, cancellation, and run case results. All functions declare concrete return types, no `any`.
 
-- [ ] **Step 3: Build complete mutable Mock data**
+- [x] **Step 3: Build complete mutable Mock data**
 
 Refactor `frontend/src/mock/knowledge.ts` into an in-memory state module:
 
@@ -2503,7 +2503,7 @@ Mock contract requirements:
 
 Do not use browser APIs in mock helpers. Return rejected-shaped `{ code: 40001, message, data: null }` objects for validation failures.
 
-- [ ] **Step 4: Dispatch knowledge mocks before broad fallback**
+- [x] **Step 4: Dispatch knowledge mocks before broad fallback**
 
 In `frontend/src/mock/index.ts`, call the specialized handler before the current knowledge/documents branches:
 
@@ -2525,7 +2525,7 @@ Remove URL matching that accidentally captures:
 
 Keep unrelated module mocks unchanged.
 
-- [ ] **Step 5: Extend the Pinia store**
+- [x] **Step 5: Extend the Pinia store**
 
 Add state:
 
@@ -2574,7 +2574,7 @@ loadRunResults(runId)
 
 `pollTestRun` uses a local interval handle in the store, clears it on terminal status and store reset, and never starts a second interval for the same run.
 
-- [ ] **Step 6: Verify contracts and commit**
+- [x] **Step 6: Verify contracts and commit**
 
 ```powershell
 npm run build
@@ -2599,7 +2599,7 @@ git commit -m "feat: add knowledge management frontend contracts"
 
 Use only Element Plus components and the project's existing Element Plus icon strategy. Do not add explanatory marketing text inside the UI.
 
-- [ ] **Step 1: Build the detail shell**
+- [x] **Step 1: Build the detail shell**
 
 `KbDetailView.vue`:
 
@@ -2640,7 +2640,7 @@ Shell template:
 </div>
 ```
 
-- [ ] **Step 2: Upgrade the documents tab**
+- [x] **Step 2: Upgrade the documents tab**
 
 `DocumentsTab.vue` contains:
 
@@ -2660,7 +2660,7 @@ selection | 文件 | 大小 | 状态 | 分段数 | 元数据 | 召回次数 | �
 
 Actions are icon buttons with tooltips: detail, metadata, rebuild index, enable/disable, delete. Required missing metadata is a small red tag on the metadata cell, not a red full row. Batch metadata opens `MetadataEditor`; batch enable and disable use `ElMessageBox.confirm`; delete uses `ConfirmDelete`.
 
-- [ ] **Step 3: Build the segments tab**
+- [x] **Step 3: Build the segments tab**
 
 `SegmentsTab.vue` has a two-column layout:
 
@@ -2684,7 +2684,7 @@ selection | 摘要 | 文档 | 章节 | 页码 | 元数据 | 字符数 | 向量�
 
 The detail drawer shows original content, location, quality fields, complete chunk metadata, and hit-history entry text. The metadata edit button opens `MetadataEditor(scope="chunk")`. Batch actions support metadata, enable/disable, and rebuild vectors. Do not provide direct content editing.
 
-- [ ] **Step 4: Build metadata schema management**
+- [x] **Step 4: Build metadata schema management**
 
 `MetadataTab.vue` uses a scope segmented control (`文档 / 分段`) and one table:
 
@@ -2712,7 +2712,7 @@ The dialog validates key format, duplicate key, select options, and required nam
 
 `MetadataEditor.vue` dynamically renders inputs from enabled visible fields. It supports single and batch modes. In single mode, required fields start with current values; in batch mode, unchanged fields are rendered as empty and only nonempty values are submitted for merge. Select fields use multi-select only when the backend filter accepts arrays; metadata editing uses single values.
 
-- [ ] **Step 5: Build retrieval settings tab**
+- [x] **Step 5: Build retrieval settings tab**
 
 `RetrievalSettingsTab.vue` uses grouped sections:
 
@@ -2734,7 +2734,7 @@ Controls:
 
 Every field label can expand to show its source tag: `测试覆盖 / 知识库 / 场景 / 系统默认`. Save validates ranges and weight sum client-side, then sends only changed values. Switching embedding to a different model shows a rebuild-required dialog and offers `保存并重建向量`. Risk actions include rebuilding all vectors; changing chunk size/overlap is read-only in V1 and links to the existing KB form.
 
-- [ ] **Step 6: Verify frontend acceptance**
+- [x] **Step 6: Verify frontend acceptance**
 
 Run:
 
@@ -2754,7 +2754,7 @@ Manual Mock verification:
 8. settings source labels update after save;
 9. no text overflows at 1366px and 375px widths.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add src/views/knowledge
@@ -2775,7 +2775,7 @@ git commit -m "feat: build knowledge management detail tabs"
 - Modify: `frontend/src/stores/knowledge.ts`
 - Test: `cd frontend && npm run build`
 
-- [ ] **Step 1: Build test set navigation**
+- [x] **Step 1: Build test set navigation**
 
 `RetrievalTestingTab.vue` uses a two-column workbench:
 
@@ -2795,7 +2795,7 @@ right: toolbar, case table, metrics, run details
 
 Actions per card: open, edit, archive/restore, delete. The list defaults to active sets and has an `包含归档` switch. Creating a set opens a small dialog with name and description only.
 
-- [ ] **Step 2: Build case management**
+- [x] **Step 2: Build case management**
 
 `TestCaseTable.vue` toolbar contains:
 
@@ -2823,7 +2823,7 @@ selection | 查询 | 期望文档 | 标签 | 最近状态 | 首个命中排名 |
 
 Expected documents are grouped by document name and show file type icons. `expected_chunk_ids` is intentionally absent from the form. A case cannot be saved with a blank query; empty expected documents are allowed and displayed as `未标注`, but such cases are excluded from quality metrics and marked `skipped`.
 
-- [ ] **Step 3: Build run controls and metrics**
+- [x] **Step 3: Build run controls and metrics**
 
 `TestRunPanel.vue` has two states.
 
@@ -2854,7 +2854,7 @@ For Hit@K and Recall@K render one value chip per selected K. Use fixed-height me
 
 Failure banner appears only when `run.error` or `run.status === 'failed'`. Individual failed case rows show an error icon button that opens the candidate drawer's error section.
 
-- [ ] **Step 4: Build result and configuration details**
+- [x] **Step 4: Build result and configuration details**
 
 The right panel uses inner tabs:
 
@@ -2880,7 +2880,7 @@ Clicking a row opens `CandidateDetailDrawer.vue`, which shows content preview, m
 
 It also shows embedding model, rerank model, selected K values, and metadata filters. It must render the exact snapshot even after KB settings change.
 
-- [ ] **Step 5: Wire polling and cancellation safely**
+- [x] **Step 5: Wire polling and cancellation safely**
 
 In `RetrievalTestingTab.vue`:
 
@@ -2892,7 +2892,7 @@ In `RetrievalTestingTab.vue`:
 
 Manual polling verification: switch tabs during a running Mock run, return to the testing tab, and confirm no duplicate interval is created; then navigate to another KB and confirm the previous run stops polling.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```powershell
 npm run build
@@ -2910,7 +2910,7 @@ git commit -m "feat: build retrieval testing workbench"
 - Test: backend full suite
 - Test: frontend build
 
-- [ ] **Step 1: Run backend regression suite**
+- [x] **Step 1: Run backend regression suite**
 
 From `backend/`:
 
@@ -2928,7 +2928,7 @@ Required checks:
 5. test-run helper calls all pass `count_recall=False`;
 6. the one-active-run index exists after migration.
 
-- [ ] **Step 2: Run frontend verification**
+- [x] **Step 2: Run frontend verification**
 
 From `frontend/`:
 
@@ -2949,7 +2949,7 @@ Then with `VITE_USE_MOCK=true`:
 9. cancel a Mock running run;
 10. refresh each tab URL directly and verify state loads.
 
-- [ ] **Step 3: Synchronize module documentation**
+- [x] **Step 3: Synchronize module documentation**
 
 Update `docs/frontend-plans/03-knowledge-base.md`:
 
@@ -2960,7 +2960,7 @@ Update `docs/frontend-plans/03-knowledge-base.md`:
 
 Update the spec status section only if implementation reveals an approved deviation. Record deviations as explicit subsections with reason and migration impact; do not silently rewrite accepted requirements.
 
-- [ ] **Step 4: Check plan completion**
+- [x] **Step 4: Check plan completion**
 
 Confirm every checkbox in this plan is checked and every task commit exists:
 
@@ -2971,7 +2971,7 @@ rg -n "\[ \]" docs/superpowers/plans/2026-08-17-kb-metadata-retrieval-testing.md
 
 The second command must return no matches.
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```powershell
 git add docs/frontend-plans/03-knowledge-base.md docs/superpowers/specs/2026-08-17-knowledge-base-metadata-retrieval-testing-design.md
@@ -2984,15 +2984,15 @@ If the spec required no edits, commit only the frontend module plan.
 
 ## Plan Self-Review Checklist
 
-- [ ] Every requirement in spec sections 3-13 maps to a task above.
-- [ ] ORM uses `metadata_` while API/database fields remain `metadata`.
-- [ ] All frontend contracts use the exact backend snake_case field names.
-- [ ] V1 does not expose chunk-level expected hit editing.
-- [ ] Retrieval tests never increment recall counts.
-- [ ] Vectors remain fixed at 1024 dimensions and incompatible models are rejected.
-- [ ] No API key, encrypted key, provider URL, or full provider configuration appears in a run snapshot.
-- [ ] Metadata predicates are schema-validated and parameter-bound.
-- [ ] Each backend task has failing tests, implementation, focused commands, and commit instructions.
-- [ ] Each frontend task has Mock behavior, build verification, and manual acceptance checks.
+- [x] Every requirement in spec sections 3-13 maps to a task above.
+- [x] ORM uses `metadata_` while API/database fields remain `metadata`.
+- [x] All frontend contracts use the exact backend snake_case field names.
+- [x] V1 does not expose chunk-level expected hit editing.
+- [x] Retrieval tests never increment recall counts.
+- [x] Vectors remain fixed at 1024 dimensions and incompatible models are rejected.
+- [x] No API key, encrypted key, provider URL, or full provider configuration appears in a run snapshot.
+- [x] Metadata predicates are schema-validated and parameter-bound.
+- [x] Each backend task has failing tests, implementation, focused commands, and commit instructions.
+- [x] Each frontend task has Mock behavior, build verification, and manual acceptance checks.
 
 ---

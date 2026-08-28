@@ -26,12 +26,13 @@ async def test_vector_search_returns_scored():
         s.add(d)
         await s.flush()
         doc_id = str(d.id)
+        kb_id = str(kb.id)
         emb = str([0.1] * 1024)
         await s.execute(text(
             "INSERT INTO chunks (id, document_id, kb_id, content, content_search, page_number, seq, element_count, embedding) "
-            "VALUES (gen_random_uuid(), :doc, 'vec_kb_test', '叉车参数', '叉车参数', 1, 0, 0, cast(:emb as vector))"
-        ), {"doc": doc_id, "emb": emb})
+            "VALUES (gen_random_uuid(), :doc, :kb, '叉车参数', '叉车参数', 1, 0, 0, cast(:emb as vector))"
+        ), {"doc": doc_id, "kb": kb_id, "emb": emb})
         await s.commit()
-    hits = await search(q_emb=[0.1] * 1024, kb_ids=["vec_kb_test"], doc_ids=None, scope=None, top_k=5)
+    hits = await search(q_emb=[0.1] * 1024, kb_ids=[kb_id], doc_ids=None, scope=None, top_k=5)
     assert len(hits) == 1
-    assert "score" in hits[0] and "content" in hits[0]
+    assert "vector_score" in hits[0] and "content" in hits[0]

@@ -3,6 +3,7 @@ from sqlalchemy import delete, select, update
 
 from app.db.session import async_session
 from app.models.knowledge_base import KnowledgeBase
+from app.services.metadata_service import ensure_default_fields
 
 
 async def list_kbs(user_id):
@@ -19,6 +20,8 @@ async def create_kb(user_id, name, description, scene, cover):
     async with async_session() as s:
         kb = KnowledgeBase(user_id=user_id, name=name, description=description, scene=scene, cover=cover)
         s.add(kb)
+        await s.flush()
+        await ensure_default_fields(kb.id, session=s)
         await s.commit()
         await s.refresh(kb)
         return kb

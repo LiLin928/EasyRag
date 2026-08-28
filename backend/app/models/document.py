@@ -1,8 +1,9 @@
 """文档与解析任务 ORM 模型。"""
 import uuid
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.models.base import Base, TimestampMixin, UUIDPk
 
@@ -40,6 +41,9 @@ class Document(Base, UUIDPk, TimestampMixin):
     file_key: Mapped[str] = mapped_column(String(512))
     element_count: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, server_default="{}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    recall_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 
 class ParseTask(Base, UUIDPk, TimestampMixin):

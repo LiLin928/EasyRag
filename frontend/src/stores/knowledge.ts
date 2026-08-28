@@ -1,11 +1,29 @@
-﻿import { defineStore } from 'pinia'
+import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import * as kbApi from '@/api/knowledge'
 import type {
-  KnowledgeBase, Document, TreeNode, DocElement, ParseTask,
-  RetrievalSettings, MetadataField, Segment, HitTestResult, HitTestRecord,
-  RetrievalTestSet, RetrievalTestCase, RetrievalTestRun
+  ChunkAsset,
+  DocElement,
+  Document,
+  KnowledgeBase,
+  MetadataField,
+  MetadataFieldPayload,
+  MetadataScope,
+  ParseTask,
+  RetrievalRunPayload,
+  RetrievalSettings,
+  RetrievalSettingsPayload,
+  RetrievalTestCase,
+  RetrievalTestCasePayload,
+  RetrievalTestCaseResult,
+  RetrievalTestRun,
+  RetrievalTestSet,
+  RetrievalTestSetPayload,
+  TreeNode,
 } from '@/types/knowledge'
+
+type KnowledgeTab = 'documents' | 'segments' | 'metadata' | 'testing' | 'settings'
+type Filter = Record<string, unknown>
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
   // ========== 知识库状态 ==========
@@ -18,6 +36,25 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const currentDoc = ref<Document | null>(null)
   const docTotal = ref(0)
   const docLoading = ref(false)
+  const documentFilter = ref<Filter>({})
+
+  // ========== 分段状态 ==========
+  const chunkList = ref<ChunkAsset[]>([])
+  const chunkTotal = ref(0)
+  const chunkLoading = ref(false)
+  const chunkFilter = ref<Filter>({})
+
+  // ========== 元数据与检索配置 ==========
+  const metadataFields = ref<MetadataField[]>([])
+  const retrievalSettings = ref<RetrievalSettings | null>(null)
+
+  // ========== 召回测试状态 ==========
+  const testSets = ref<RetrievalTestSet[]>([])
+  const currentTestSet = ref<RetrievalTestSet | null>(null)
+  const testCases = ref<RetrievalTestCase[]>([])
+  const currentRun = ref<RetrievalTestRun | null>(null)
+  const runResults = ref<RetrievalTestCaseResult[]>([])
+  const activeTab = ref<KnowledgeTab>('documents')
 
   // ========== 结构树与元素 ==========
   const tree = ref<TreeNode[]>([])
@@ -25,28 +62,39 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   const elementTotal = ref(0)
 
   // ========== 上传队列 ==========
- const uploadQueue = ref<ParseTask[]>([])
+  const uploadQueue = ref<ParseTask[]>([])
+  const activeKbId = ref('')
 
-  // ========== 检索设置 ==========
-  const retrievalSettings = ref<RetrievalSettings | null>(null)
+  let runPollTimer: ReturnType<typeof setInterval> | null = null
+  const parsePollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  let parsePollEpoch = 0
+  let kbRequestEpoch = 0
 
-  // ========== 元数据字段 ==========
-  const metadataFields = ref<MetadataField[]>([])
+  function isTerminalRun(run: RetrievalTestRun | null): boolean {
+    return run?.status === 'completed' || run?.status === 'failed' || run?.status === 'canceled'
+  }
 
-  // ========== 分段 ==========
-  const segments = ref<Segment[]>([])
-  const segmentTotal = ref(0)
+  function isKbResponseCurrent(kbId: string, requestEpoch: number): boolean {
+    if (requestEpoch !== kbRequestEpoch) return false
+    return activeKbId.value === '' || activeKbId.value === kbId
+  }
 
-  // ========== 召回测试 ==========
-  const hitTestResult = ref<HitTestResult | null>(null)
-  const hitTestRecords = ref<HitTestRecord[]>([])
-  const testSets = ref<RetrievalTestSet[]>([])
-  const testCases = ref<RetrievalTestCase[]>([])
-  const testRun = ref<RetrievalTestRun | null>(null)
+  function stopRunPolling(): void {
+    if (runPollTimer !== null) {
+      clearInterval(runPollTimer)
+      runPollTimer = null
+    }
+  }
+
+  async function refreshRun(runId: string): Promise<RetrievalTestRun> {
+    const run = await kbApi.getTestRun(runId)
+    currentRun.value = run
+    if (isTerminalRun(run)) stopRunPolling()
+    return run
+  }
 
   // ========== 知识库操作 ==========
-  
-  async function loadKbList(keyword?: string) {
+  async function loadKbList(keyword?: string): Promise<void> {
     kbLoading.value = true
     try {
       kbList.value = await kbApi.getKbList({ keyword })
@@ -55,53 +103,73 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
-  async function createKb(data: Partial<KnowledgeBase>) {
+  async function createKb(data: Partial<KnowledgeBase>): Promise<KnowledgeBase> {
     const kb = await kbApi.createKb(data)
     kbList.value.unshift(kb)
     return kb
   }
 
-  async function updateKb(id: string, data: Partial<KnowledgeBase>) {
+  async function updateKb(id: string, data: Partial<KnowledgeBase>): Promise<KnowledgeBase> {
     const kb = await kbApi.updateKb(id, data)
-    const index = kbList.value.findIndex(k => k.id === id)
-    if (index > -1) {
-      kbList.value[index] = kb
-    }
+    const index = kbList.value.findIndex((item) => item.id === id)
+    if (index > -1) kbList.value[index] = kb
+    if (currentKb.value?.id === id) currentKb.value = kb
     return kb
   }
 
-  async function deleteKb(id: string) {
+  async function deleteKb(id: string): Promise<void> {
     await kbApi.deleteKb(id)
-    kbList.value = kbList.value.filter(k => k.id !== id)
+    kbList.value = kbList.value.filter((item) => item.id !== id)
+    if (currentKb.value?.id === id) currentKb.value = null
   }
 
-  async function loadKbDetail(id: string) {
-    currentKb.value = await kbApi.getKbDetail(id)
+  async function loadKbDetail(id: string): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    const kb = await kbApi.getKbDetail(id)
+    if (!isKbResponseCurrent(id, requestEpoch)) return
+    currentKb.value = kb
   }
 
   // ========== 文档操作 ==========
-
-  async function loadDocuments(kbId: string, page = 1, pageSize = 20) {
+  async function loadDocuments(
+    kbId: string,
+    page = 1,
+    pageSize = 20,
+    filter: Filter = {}
+  ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     docLoading.value = true
+    documentFilter.value = filter
     try {
-      const result = await kbApi.getDocumentList({ kb_id: kbId, page, pageSize })
+      const result = await kbApi.getDocumentList({
+        ...filter,
+        kb_id: kbId,
+        page,
+        page_size: pageSize
+      })
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
       docList.value = result.list
       docTotal.value = result.total
     } finally {
-      docLoading.value = false
+      if (requestEpoch === kbRequestEpoch) docLoading.value = false
     }
   }
 
-  async function uploadFiles(kbId: string, files: File[], mode: 'fast' | 'precision', scene?: string) {
+  async function uploadFiles(
+    kbId: string,
+    files: File[],
+    mode: 'fast' | 'precision',
+    scene?: string
+  ): Promise<ParseTask[]> {
     const tasks: ParseTask[] = []
-    
+
     for (const file of files) {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('kbId', kbId)
       formData.append('mode', mode)
       if (scene) formData.append('scene', scene)
-      
+
       const result = await kbApi.uploadDocument(formData)
       tasks.push({
         task_id: result.task_id,
@@ -110,202 +178,385 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
         pct: 0
       })
     }
-    
+
     uploadQueue.value.push(...tasks)
     return tasks
   }
 
-  async function deleteDocument(id: string) {
+  async function deleteDocument(kbId: string, id: string): Promise<void> {
+    const requestEpoch = kbRequestEpoch
     await kbApi.deleteDocument(id)
-    docList.value = docList.value.filter(d => d.id !== id)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    docList.value = docList.value.filter((item) => item.id !== id)
+    docTotal.value = Math.max(0, docTotal.value - 1)
   }
 
   // ========== 解析任务轮询 ==========
-
-  function startPolling(taskId: string, onComplete?: () => void) {
-    const poll = async () => {
+  function startPolling(taskId: string, onComplete?: () => void): void {
+    const pollEpoch = parsePollEpoch
+    const poll = async (): Promise<void> => {
       try {
         const task = await kbApi.getParseTask(taskId)
-        const index = uploadQueue.value.findIndex(t => t.task_id === taskId)
-        if (index > -1) {
-          uploadQueue.value[index] = task
-        }
-        
+        if (pollEpoch !== parsePollEpoch) return
+        const index = uploadQueue.value.findIndex((item) => item.task_id === taskId)
+        if (index > -1) uploadQueue.value[index] = task
         if (task.status === 'done' || task.status === 'failed') {
-          if (onComplete) onComplete()
+          onComplete?.()
           return
         }
-        
-        // 继续轮询
-        setTimeout(poll, 2000)
+        const timer = setTimeout(() => {
+          parsePollTimers.delete(taskId)
+          void poll()
+        }, 2000)
+        parsePollTimers.set(taskId, timer)
       } catch (error) {
         console.error('Poll task error:', error)
       }
     }
-    
-    poll()
+
+    void poll()
+  }
+
+  // ========== 元数据 Schema ==========
+  async function loadMetadataFields(kbId: string, scope?: MetadataScope): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    const fields = await kbApi.getMetadataFields(kbId, scope)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    metadataFields.value = fields
+  }
+
+  async function reorderMetadataFields(kbId: string, ids: string[]): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    await kbApi.reorderMetadataFields(kbId, ids)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    const ordered = ids
+      .map((id, index) => ({ id, index }))
+      .reduce<Map<string, number>>((map, item) => {
+        map.set(item.id, item.index)
+        return map
+      }, new Map<string, number>())
+    metadataFields.value = metadataFields.value
+      .map((field) =>
+        ordered.has(field.id) ? { ...field, sort_order: ordered.get(field.id) as number } : field
+      )
+      .sort((a, b) => a.sort_order - b.sort_order)
+  }
+
+  async function saveMetadataField(
+    kbId: string,
+    payload: MetadataFieldPayload,
+    id?: string
+  ): Promise<MetadataField> {
+    const requestEpoch = kbRequestEpoch
+    const field = id
+      ? await kbApi.updateMetadataField(kbId, id, payload)
+      : await kbApi.createMetadataField(kbId, payload)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return field
+    const index = metadataFields.value.findIndex((item) => item.id === field.id)
+    if (index > -1) metadataFields.value[index] = field
+    else metadataFields.value.push(field)
+    return field
+  }
+
+  async function updateMetadataField(
+    kbId: string,
+    id: string,
+    payload: Partial<MetadataField>
+  ): Promise<MetadataField> {
+    const requestEpoch = kbRequestEpoch
+    const field = await kbApi.updateMetadataField(kbId, id, payload)
+    if (isKbResponseCurrent(kbId, requestEpoch)) {
+      const index = metadataFields.value.findIndex((item) => item.id === field.id)
+      if (index > -1) metadataFields.value[index] = field
+    }
+    return field
+  }
+
+  async function removeMetadataField(
+    kbId: string,
+    id: string,
+    force: boolean
+  ): Promise<{ success: boolean; affected_count: number }> {
+    const requestEpoch = kbRequestEpoch
+    const impact = await kbApi.deleteMetadataField(kbId, id, force)
+    if (impact.success && isKbResponseCurrent(kbId, requestEpoch)) {
+      metadataFields.value = metadataFields.value.filter((item) => item.id !== id)
+    }
+    return impact
+  }
+
+  async function saveDocumentMetadata(
+    kbId: string,
+    ids: string[],
+    metadata: Filter
+  ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    if (ids.length === 1) {
+      const document = await kbApi.updateDocumentMetadata(ids[0], metadata)
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
+      const index = docList.value.findIndex((item) => item.id === document.id)
+      if (index > -1) docList.value[index] = document
+      return
+    }
+    await kbApi.batchUpdateDocumentMetadata(ids, metadata)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    docList.value = docList.value.map((item) =>
+      ids.includes(item.id) ? { ...item, metadata: { ...item.metadata, ...metadata } } : item
+    )
+  }
+
+  async function setDocumentEnabled(
+    kbId: string,
+    ids: string[],
+    enabled: boolean
+  ): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    await kbApi.updateDocumentStatus(ids, enabled)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    docList.value = docList.value.map((item) =>
+      ids.includes(item.id) ? { ...item, enabled } : item
+    )
+  }
+
+  // ========== 分段操作 ==========
+  async function loadChunks(kbId: string, filter: Filter = {}): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    chunkLoading.value = true
+    chunkFilter.value = filter
+    try {
+      const result = await kbApi.getChunkList({ ...filter, kb_id: kbId })
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
+      chunkList.value = result.list
+      chunkTotal.value = result.total
+    } finally {
+      if (requestEpoch === kbRequestEpoch) chunkLoading.value = false
+    }
+  }
+
+  async function saveChunkMetadata(kbId: string, ids: string[], metadata: Filter): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    if (ids.length === 1) {
+      const chunk = await kbApi.updateChunkMetadata(ids[0], metadata)
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
+      const index = chunkList.value.findIndex((item) => item.id === chunk.id)
+      if (index > -1) chunkList.value[index] = chunk
+      return
+    }
+    await kbApi.batchUpdateChunkMetadata(ids, metadata)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    chunkList.value = chunkList.value.map((item) =>
+      ids.includes(item.id) ? { ...item, metadata: { ...item.metadata, ...metadata } } : item
+    )
+  }
+
+  async function setChunkEnabled(kbId: string, ids: string[], enabled: boolean): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    await kbApi.updateChunkStatus(ids, enabled)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    chunkList.value = chunkList.value.map((item) =>
+      ids.includes(item.id) ? { ...item, enabled } : item
+    )
+  }
+
+  async function queueReembedding(
+    kbId: string,
+    documentIds: string[],
+    chunkIds: string[]
+  ): Promise<{ queued: boolean }> {
+    return kbApi.reembedChunks(kbId, documentIds, chunkIds)
+  }
+
+  // ========== 检索配置 ==========
+  async function loadRetrievalSettings(kbId: string): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    const settings = await kbApi.getRetrievalSettings(kbId)
+    if (isKbResponseCurrent(kbId, requestEpoch)) retrievalSettings.value = settings
+  }
+
+  async function saveRetrievalSettings(
+    kbId: string,
+    payload: RetrievalSettingsPayload
+  ): Promise<RetrievalSettings> {
+    const requestEpoch = kbRequestEpoch
+    const settings = await kbApi.saveRetrievalSettings(kbId, payload)
+    if (isKbResponseCurrent(kbId, requestEpoch)) retrievalSettings.value = settings
+    return settings
+  }
+
+  // ========== 召回测试集 ==========
+  async function loadTestSets(kbId: string, includeArchived?: boolean): Promise<void> {
+    const requestEpoch = kbRequestEpoch
+    const result = await kbApi.getTestSets(kbId, includeArchived)
+    if (!isKbResponseCurrent(kbId, requestEpoch)) return
+    testSets.value = result.list
+  }
+
+  async function saveTestSet(
+    kbId: string,
+    payload: RetrievalTestSetPayload,
+    setId?: string
+  ): Promise<RetrievalTestSet> {
+    const testSet = setId
+      ? await kbApi.updateTestSet(setId, payload)
+      : await kbApi.createTestSet(kbId, payload)
+    const index = testSets.value.findIndex((item) => item.id === testSet.id)
+    if (index > -1) testSets.value[index] = testSet
+    else testSets.value.unshift(testSet)
+    currentTestSet.value = testSet
+    return testSet
+  }
+
+  async function removeTestSet(setId: string): Promise<void> {
+    await kbApi.deleteTestSet(setId)
+    testSets.value = testSets.value.filter((item) => item.id !== setId)
+    if (currentTestSet.value?.id === setId) {
+      currentTestSet.value = null
+      testCases.value = []
+      currentRun.value = null
+      runResults.value = []
+      stopRunPolling()
+    }
+  }
+
+  // ========== 召回测试用例 ==========
+  async function loadTestCases(setId: string): Promise<void> {
+    const result = await kbApi.getTestCases(setId)
+    testCases.value = result.list
+  }
+
+  async function saveTestCase(
+    setId: string,
+    payload: RetrievalTestCasePayload,
+    caseId?: string
+  ): Promise<RetrievalTestCase> {
+    const testCase = caseId
+      ? await kbApi.updateTestCase(caseId, payload)
+      : await kbApi.createTestCase(setId, payload)
+    const index = testCases.value.findIndex((item) => item.id === testCase.id)
+    if (index > -1) testCases.value[index] = testCase
+    else testCases.value.push(testCase)
+    return testCase
+  }
+
+  async function removeTestCase(caseId: string): Promise<void> {
+    await kbApi.deleteTestCase(caseId)
+    testCases.value = testCases.value.filter((item) => item.id !== caseId)
+  }
+
+  async function setTestCaseEnabled(ids: string[], enabled: boolean): Promise<void> {
+    await kbApi.updateTestCaseStatus(ids, enabled)
+    testCases.value = testCases.value.map((item) =>
+      ids.includes(item.id) ? { ...item, enabled } : item
+    )
+  }
+
+  // ========== 测试运行 ==========
+  async function startTestRun(
+    setId: string,
+    payload: RetrievalRunPayload
+  ): Promise<RetrievalTestRun> {
+    stopRunPolling()
+    currentRun.value = await kbApi.startTestRun(setId, payload)
+    runResults.value = []
+    if (!isTerminalRun(currentRun.value)) await pollTestRun(currentRun.value.id)
+    return currentRun.value
+  }
+
+  async function pollTestRun(runId: string): Promise<void> {
+    if (runPollTimer !== null && currentRun.value?.id === runId) return
+    if (runPollTimer !== null) stopRunPolling()
+
+    await refreshRun(runId)
+    if (isTerminalRun(currentRun.value)) return
+    if (runPollTimer !== null) return
+
+    runPollTimer = setInterval(() => {
+      void refreshRun(runId).catch((error: unknown) => {
+        console.error('Poll retrieval test run error:', error)
+      })
+    }, 2000)
+  }
+
+  async function cancelTestRun(runId: string): Promise<RetrievalTestRun> {
+    stopRunPolling()
+    currentRun.value = await kbApi.cancelTestRun(runId)
+    return currentRun.value
+  }
+
+  async function loadRunResults(runId: string): Promise<void> {
+    const result = await kbApi.getTestRunResults(runId)
+    runResults.value = result.list
+  }
+  async function loadTestRuns(setId: string): Promise<RetrievalTestRun[]> {
+    const result = await kbApi.getTestRuns(setId)
+    return result.list
+  }
+
+  function selectTestSet(set: RetrievalTestSet | null): void {
+    currentTestSet.value = set
+    if (!set) {
+      testCases.value = []
+      currentRun.value = null
+      runResults.value = []
+      stopRunPolling()
+    }
+  }
+
+  function clearRunState(): void {
+    currentRun.value = null
+    runResults.value = []
+    stopRunPolling()
+  }
+
+  function setCurrentRun(run: RetrievalTestRun | null): void {
+    currentRun.value = run
   }
 
   // ========== 结构树与元素 ==========
-
-  async function loadTree(docId: string) {
+  async function loadTree(docId: string): Promise<void> {
     tree.value = await kbApi.getDocTree(docId)
   }
 
- async function loadElements(docId: string, params: { nodeId?: string; type?: string; page?: number; pageSize?: number } = {}) {
-   const result = await kbApi.getDocElements({ docId, ...params })
-   elements.value = result.list
-   elementTotal.value = result.total
- }
-
-  // ========== 检索设置 ==========
-
-  async function loadRetrievalSettings(kbId: string) {
-    retrievalSettings.value = await kbApi.getRetrievalSettings(kbId)
-  }
-
-  async function saveRetrievalSettings(kbId: string, data: Partial<RetrievalSettings>) {
-    retrievalSettings.value = await kbApi.updateRetrievalSettings(kbId, data)
-  }
-
-  // ========== 元数据字段 ==========
-
-  async function loadMetadataFields(kbId: string) {
-    metadataFields.value = await kbApi.getMetadataFields(kbId)
-  }
-
-  async function createMetadataField(kbId: string, data: Partial<MetadataField>) {
-    const field = await kbApi.createMetadataField(kbId, data)
-    metadataFields.value.push(field)
-    return field
-  }
-
-  async function updateMetadataField(fieldId: string, data: Partial<MetadataField>) {
-    const field = await kbApi.updateMetadataField(fieldId, data)
-    const index = metadataFields.value.findIndex(f => f.id === fieldId)
-    if (index > -1) {
-      metadataFields.value[index] = field
-    }
-    return field
-  }
-
-  async function deleteMetadataField(fieldId: string) {
-    await kbApi.deleteMetadataField(fieldId)
-    metadataFields.value = metadataFields.value.filter(f => f.id !== fieldId)
-  }
-
-  // ========== 分段 ==========
-
-  async function loadSegments(kbId: string, params?: { docId?: string; page?: number; pageSize?: number }) {
-    const result = await kbApi.getSegments(kbId, params)
-    segments.value = result.list
-    segmentTotal.value = result.total
-  }
-
-  async function updateSegmentMetadata(segmentId: string, data: Record<string, string>) {
-    await kbApi.updateSegmentMetadata(segmentId, data)
-    const seg = findSegment(segments.value, segmentId)
-    if (seg) {
-      seg.metadata = { ...seg.metadata, ...data }
-    }
-  }
-
-  async function updateSegmentStatus(segmentId: string, enabled: boolean) {
-    await kbApi.updateSegmentStatus(segmentId, enabled)
-    const seg = findSegment(segments.value, segmentId)
-    if (seg) {
-      seg.enabled = enabled
-    }
-  }
-
-  function findSegment(list: Segment[], id: string): Segment | undefined {
-    for (const seg of list) {
-      if (seg.id === id) return seg
-      if (seg.children) {
-        const child = findSegment(seg.children, id)
-        if (child) return child
-      }
-    }
-    return undefined
-  }
-
-  // ========== 召回测试（即时） ==========
-
-  async function runHitTest(kbId: string, query: string) {
-    hitTestResult.value = await kbApi.hitTest(kbId, query)
-    return hitTestResult.value
-  }
-
-  async function loadHitTestRecords(kbId: string) {
-    hitTestRecords.value = await kbApi.getHitTestRecords(kbId)
-  }
-
-  // ========== 召回测试（批量） ==========
-
-  async function loadTestSets(kbId: string) {
-    testSets.value = await kbApi.getTestSets(kbId)
-  }
-
-  async function createTestSet(kbId: string, data: Partial<RetrievalTestSet>) {
-    const ts = await kbApi.createTestSet(kbId, data)
-    testSets.value.unshift(ts)
-    return ts
-  }
-
-  async function loadTestCases(testSetId: string) {
-    testCases.value = await kbApi.getTestCases(testSetId)
-  }
-
-  async function createTestCase(testSetId: string, data: Partial<RetrievalTestCase>) {
-    const tc = await kbApi.createTestCase(testSetId, data)
-    testCases.value.push(tc)
-    return tc
-  }
-
-  async function updateTestCase(caseId: string, data: Partial<RetrievalTestCase>) {
-    const tc = await kbApi.updateTestCase(caseId, data)
-    const index = testCases.value.findIndex(c => c.id === caseId)
-    if (index > -1) {
-      testCases.value[index] = tc
-    }
-    return tc
-  }
-
-  async function deleteTestCase(caseId: string) {
-    await kbApi.deleteTestCase(caseId)
-    testCases.value = testCases.value.filter(c => c.id !== caseId)
-  }
-
-  async function runTestRun(testSetId: string, kbId: string) {
-    testRun.value = await kbApi.createTestRun(testSetId, { kbId })
-    return testRun.value
-  }
-
-  async function loadTestRun(runId: string) {
-    testRun.value = await kbApi.getTestRun(runId)
+  async function loadElements(
+    docId: string,
+    params: { nodeId?: string; type?: string; page?: number; pageSize?: number } = {}
+  ): Promise<void> {
+    const result = await kbApi.getDocElements({ docId, ...params })
+    elements.value = result.list
+    elementTotal.value = result.total
   }
 
   // ========== 重置状态 ==========
-
-  function reset() {
+  function reset(nextKbId = ''): void {
+    stopRunPolling()
+    kbRequestEpoch += 1
+    parsePollEpoch += 1
+    parsePollTimers.forEach((timer) => clearTimeout(timer))
+    parsePollTimers.clear()
+    activeKbId.value = nextKbId
     kbList.value = []
     currentKb.value = null
     docList.value = []
     currentDoc.value = null
     docTotal.value = 0
+    docLoading.value = false
+    documentFilter.value = {}
+    chunkList.value = []
+    chunkTotal.value = 0
+    chunkLoading.value = false
+    chunkFilter.value = {}
+    metadataFields.value = []
+    retrievalSettings.value = null
+    testSets.value = []
+    currentTestSet.value = null
+    testCases.value = []
+    currentRun.value = null
+    runResults.value = []
+    activeTab.value = 'documents'
     tree.value = []
     elements.value = []
-   elementTotal.value = 0
-   uploadQueue.value = []
-    retrievalSettings.value = null
-    metadataFields.value = []
-    segments.value = []
-    segmentTotal.value = 0
-    hitTestResult.value = null
-    hitTestRecords.value = []
-    testSets.value = []
-    testCases.value = []
-    testRun.value = null
+    elementTotal.value = 0
+    uploadQueue.value = []
   }
 
   return {
@@ -317,65 +568,79 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     currentDoc,
     docTotal,
     docLoading,
+    documentFilter,
+    chunkList,
+    chunkTotal,
+    chunkLoading,
+    chunkFilter,
+    metadataFields,
+    retrievalSettings,
+    testSets,
+    currentTestSet,
+    testCases,
+    currentRun,
+    runResults,
+    activeTab,
     tree,
     elements,
     elementTotal,
     uploadQueue,
-    retrievalSettings,
-    metadataFields,
-    segments,
-    segmentTotal,
-    hitTestResult,
-    hitTestRecords,
-    testSets,
-    testCases,
-    testRun,
-    
+
     // 知识库操作
     loadKbList,
     createKb,
     updateKb,
     deleteKb,
     loadKbDetail,
-    
+
     // 文档操作
     loadDocuments,
     uploadFiles,
     deleteDocument,
-    
+    saveDocumentMetadata,
+    setDocumentEnabled,
+
     // 解析任务
     startPolling,
-    
-    // 结构树与元素
-   loadTree,
-   loadElements,
-    
-    // 检索设置
+
+    // 元数据操作
+    loadMetadataFields,
+    saveMetadataField,
+    updateMetadataField,
+    removeMetadataField,
+    reorderMetadataFields,
+
+    // 分段操作
+    loadChunks,
+    saveChunkMetadata,
+    setChunkEnabled,
+    queueReembedding,
+
+    // 检索配置
     loadRetrievalSettings,
     saveRetrievalSettings,
 
-    // 元数据字段
-    loadMetadataFields,
-    createMetadataField,
-    updateMetadataField,
-    deleteMetadataField,
-
-    // 分段
-    loadSegments,
-    updateSegmentMetadata,
-    updateSegmentStatus,
-
     // 召回测试
-    runHitTest,
-    loadHitTestRecords,
     loadTestSets,
-    createTestSet,
+    saveTestSet,
+    removeTestSet,
     loadTestCases,
-    createTestCase,
-    updateTestCase,
-    deleteTestCase,
-    runTestRun,
-    loadTestRun,
+    saveTestCase,
+    removeTestCase,
+    setTestCaseEnabled,
+    startTestRun,
+    pollTestRun,
+    cancelTestRun,
+    loadRunResults,
+    loadTestRuns,
+    selectTestSet,
+    clearRunState,
+    setCurrentRun,
+    stopRunPolling,
+
+    // 结构树与元素
+    loadTree,
+    loadElements,
 
     // 重置
     reset

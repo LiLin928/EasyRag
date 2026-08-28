@@ -4,7 +4,7 @@ from sqlalchemy import delete
 
 from app.db.session import async_session
 from app.models.model_config import ModelConfig
-from app.providers.langchain_factory import build_chat_model
+from app.providers.langchain_factory import build_chat_model, build_embeddings_from_config
 from app.security.crypto import encrypt
 from app.services.settings_service import upsert_model
 
@@ -49,3 +49,48 @@ async def test_build_chat_model_no_default_raises():
     await _clear_llm()
     with pytest.raises(Exception):
         await build_chat_model(use="qa")
+
+
+@pytest.mark.asyncio
+async def test_build_embeddings_from_config_validates_dimension(monkeypatch):
+    model = ModelConfig(
+        grp="embed",
+        name="bad-dimension",
+        prov="openai",
+        use="retrieval",
+        url="http://localhost",
+        params={"dim": 768},
+        api_key_enc="encrypted",
+        is_default=False,
+        enabled=True,
+    )
+    with pytest.raises(Exception):
+        await build_embeddings_from_config(model)
+
+
+@pytest.mark.asyncio
+async def test_build_embeddings_from_config_decrypts_key_in_provider_layer(monkeypatch):
+    model = ModelConfig(
+        grp="embed",
+        name="text-embedding",
+        prov="openai",
+        use="retrieval",
+        url="http://localhost",
+        params={"dim": 1024},
+        api_key_enc="encrypted",
+        is_default=False,
+        enabled=True,
+    )
+    captured = {}
+
+    def fake_init(**kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("app.providers.langchain_factory.init_embeddings", fake_init)
+    monkeypatch.setattr(
+        "app.providers.langchain_factory.decrypt", lambda value: "decrypted-key"
+    )
+    await build_embeddings_from_config(model)
+    assert captured["api_key"] == "decrypted-key"
+    assert captured["dimensions"] == 1024

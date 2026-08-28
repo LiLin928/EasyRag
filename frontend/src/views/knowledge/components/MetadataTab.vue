@@ -1,321 +1,317 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
-import type { MetadataField, MetadataScope, MetadataFieldType } from '@/types/knowledge'
+import ConfirmDelete from '@/components/common/ConfirmDelete.vue'
+import MetadataFieldDialog from './MetadataFieldDialog.vue'
+import type { MetadataField, MetadataFieldPayload, MetadataScope } from '@/types/knowledge'
 
-const props = defineProps<{ kbId: string }>()
+interface Props {
+  kbId: string
+}
+
+const props = defineProps<Props>()
 const knowledgeStore = useKnowledgeStore()
 
-const loading = ref(false)
+const scope = ref<MetadataScope>('document')
 const dialogVisible = ref(false)
 const editingField = ref<MetadataField | null>(null)
+const fieldSaving = ref(false)
+const savingCount = ref(0)
+const draggingField = ref<MetadataField | null>(null)
 
-const form = ref({
-  key: '',
-  name: '',
-  scope: 'document' as MetadataScope,
-  dataType: 'string' as MetadataFieldType,
-  options: '',
-  required: false,
-  filterable: true,
-  retrievalFilterable: false,
-  visible: true
-})
+const fields = computed<MetadataField[]>(() =>
+  knowledgeStore.metadataFields
+    .filter((field) => field.kb_id === props.kbId && field.scope === scope.value)
+    .sort((a, b) => a.sort_order - b.sort_order)
+)
 
-const docFields = computed(() => knowledgeStore.metadataFields.filter(f => f.scope === 'document').sort((a, b) => a.sortOrder - b.sortOrder))
-const chunkFields = computed(() => knowledgeStore.metadataFields.filter(f => f.scope === 'chunk').sort((a, b) => a.sortOrder - b.sortOrder))
-
-const dataTypeOptions = [
-    { label: '字符串', value: 'string' },
-    { label: '数字', value: 'number' },
-    { label: '日期', value: 'date' },
-    { label: '下拉选择', value: 'select' },
-    { label: '布尔值', value: 'boolean' }
-  ]
-
-onMounted(async () => {
-  loading.value = true
+async function patchField(field: MetadataField, payload: Partial<MetadataField>): Promise<void> {
+  savingCount.value += 1
   try {
-    await knowledgeStore.loadMetadataFields(props.kbId)
+    await knowledgeStore.updateMetadataField(props.kbId, field.id, payload)
   } finally {
-    loading.value = false
-  }
-})
-
-async function handleToggle(field: MetadataField, key: 'visible' | 'filterable' | 'retrievalFilterable') {
-  try {
-    await knowledgeStore.updateMetadataField(field.id, { [key]: field[key] })
-  } catch {
-    field[key] = !field[key]
+    savingCount.value -= 1
   }
 }
 
-function openCreateDialog(scope: MetadataScope) {
+function openCreate(): void {
   editingField.value = null
-  form.value = {
-    key: '',
-    name: '',
-    scope,
-    dataType: 'string',
-    options: '',
-    required: false,
-    filterable: true,
-    retrievalFilterable: false,
-    visible: true
-  }
   dialogVisible.value = true
 }
 
-function openEditDialog(field: MetadataField) {
+function openEdit(field: MetadataField): void {
   editingField.value = field
-  form.value = {
-    key: field.key,
-    name: field.name,
-    scope: field.scope,
-    dataType: field.dataType,
-    options: field.options.join(', '),
-    required: field.required,
-    filterable: field.filterable,
-    retrievalFilterable: field.retrievalFilterable,
-    visible: field.visible
-  }
   dialogVisible.value = true
 }
 
-async function handleSave() {
-  if (!form.value.key || !form.value.name) {
-    ElMessage.warning('字段标识和名称不能为空')
+async function saveField(payload: MetadataFieldPayload): Promise<void> {
+  if (fieldSaving.value) return
+  if (editingField.value) {
+    const current = editingField.value
+    const optionsChanged = JSON.stringify(current.options) !== JSON.stringify(payload.options)
+    const retrievalChanged = current.retrieval_filterable !== payload.retrieval_filterable
+    if (optionsChanged || retrievalChanged) {
+      try {
+        await ElMessageBox.confirm(
+          '该字段会影响检索过滤或筛选选项，保存后将立即生效。',
+          '生效确认',
+          { confirmButtonText: '保存并生效', cancelButtonText: '取消', type: 'warning' }
+        )
+      } catch (error) {
+        return
+      }
+    }
+    const payloadForApi: Partial<MetadataField> = {
+      name: payload.name,
+      options: payload.options,
+      default_value: payload.default_value,
+      required: payload.required,
+      filterable: payload.filterable,
+      retrieval_filterable: payload.retrieval_filterable,
+      visible: payload.visible,
+      sort_order: payload.sort_order
+    }
+    fieldSaving.value = true
+    try {
+      await patchField(current, payloadForApi)
+      dialogVisible.value = false
+      ElMessage.success('字段已更新')
+    } catch (error) {
+      // Keep the dialog open so the failed form remains editable.
+    } finally {
+      fieldSaving.value = false
+    }
     return
   }
 
-  const data: Partial<MetadataField> = {
-    key: form.value.key,
-    name: form.value.name,
-    scope: form.value.scope,
-    dataType: form.value.dataType,
-    options: form.value.dataType === 'select' ? form.value.options.split(',').map(s => s.trim()).filter(Boolean) : [],
-    required: form.value.required,
-    filterable: form.value.filterable,
-    retrievalFilterable: form.value.retrievalFilterable,
-    visible: form.value.visible,
-    builtIn: false
-  }
-
+  fieldSaving.value = true
   try {
-    if (editingField.value) {
-      await knowledgeStore.updateMetadataField(editingField.value.id, data)
-      ElMessage.success('更新成功')
-    } else {
-      await knowledgeStore.createMetadataField(props.kbId, data)
-      ElMessage.success('创建成功')
-    }
+    await knowledgeStore.saveMetadataField(props.kbId, payload)
     dialogVisible.value = false
-  } catch {
-    ElMessage.error('操作失败')
+    ElMessage.success('字段已创建')
+  } catch (error) {
+    // Keep the dialog open so the failed form remains editable.
+  } finally {
+    fieldSaving.value = false
   }
 }
 
-async function handleDelete(field: MetadataField) {
+async function updateFlag(
+  field: MetadataField,
+  key: 'filterable' | 'retrieval_filterable' | 'visible',
+  value: boolean
+): Promise<void> {
+  if (key === 'retrieval_filterable') {
+    try {
+      await ElMessageBox.confirm(
+        `${value ? '开启' : '关闭'}后该字段的检索过滤能力将立即生效。`,
+        '生效确认',
+        {
+          confirmButtonText: value ? '开启并保存' : '关闭并保存',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+    } catch (error) {
+      return
+    }
+  }
+  await patchField(field, { [key]: value })
+  ElMessage.success('字段已更新')
+}
+
+async function removeField(field: MetadataField): Promise<void> {
+  const impact = await knowledgeStore.removeMetadataField(props.kbId, field.id, false)
+  if (!impact.success) {
+    try {
+      await ElMessageBox.confirm(
+        `该字段已有 ${impact.affected_count} 个值，删除后将同时清除这些值。`,
+        '强制删除确认',
+        { confirmButtonText: '强制删除', cancelButtonText: '取消', type: 'warning' }
+      )
+      await knowledgeStore.removeMetadataField(props.kbId, field.id, true)
+    } catch (error) {
+      return
+    }
+  }
+  ElMessage.success('字段已删除')
+}
+
+function handleDragStart(field: MetadataField): void {
+  draggingField.value = field
+}
+
+async function handleDrop(target: MetadataField): Promise<void> {
+  const source = draggingField.value
+  draggingField.value = null
+  if (!source || source.id === target.id) return
+
+  const nextFields = [...fields.value]
+  const sourceIndex = nextFields.findIndex((item) => item.id === source.id)
+  const targetIndex = nextFields.findIndex((item) => item.id === target.id)
+  if (sourceIndex < 0 || targetIndex < 0) return
+  nextFields.splice(sourceIndex, 1)
+  nextFields.splice(targetIndex, 0, source)
+
+  savingCount.value += 1
   try {
-    await ElMessageBox.confirm('确定要删除字段"' + field.name + '"吗？', '删除确认', {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await knowledgeStore.deleteMetadataField(field.id)
-    ElMessage.success('删除成功')
-  } catch {
-    // cancelled
+    await knowledgeStore.reorderMetadataFields(
+      props.kbId,
+      nextFields.map((field) => field.id)
+    )
+    ElMessage.success('排序已保存')
+  } finally {
+    savingCount.value -= 1
   }
 }
 </script>
 
 <template>
-  <div v-loading="loading" class="metadata-tab">
-    <!-- 文档级元数据 -->
-    <div class="scope-section">
-      <div class="scope-header">
-        <h3 class="section-title">文档级元数据</h3>
-        <el-button type="primary" size="small" @click="openCreateDialog('document')">
-          添加字段
-        </el-button>
-      </div>
-      <el-table :data="docFields" border style="width: 100%">
-        <el-table-column prop="name" label="字段名称" width="140" />
-        <el-table-column prop="key" label="标识" width="140" />
-        <el-table-column label="类型" width="100">
-          <template #default="{ row }">
-            {{ dataTypeOptions.find(o => o.value === row.dataType)?.label || row.dataType }}
-          </template>
-        </el-table-column>
-        <el-table-column label="选项" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.dataType === 'select'">{{ row.options.join(', ') }}</span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="必填" width="60" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.required" size="small" type="danger">必填</el-tag>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="可见" width="60" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.visible" size="small" :disabled="row.builtIn" @change="handleToggle(row as MetadataField, 'visible')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="可筛选" width="70" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.filterable" size="small" @change="handleToggle(row as MetadataField, 'filterable')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="检索过滤" width="80" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.retrievalFilterable" size="small" @change="handleToggle(row as MetadataField, 'retrievalFilterable')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="内置" width="60" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.builtIn" size="small" type="info">内置</el-tag>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row as MetadataField)">编辑</el-button>
-            <el-button v-if="!row.builtIn" link type="danger" size="small" @click="handleDelete(row as MetadataField)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+  <section class="metadata-tab">
+    <div class="toolbar">
+      <el-segmented
+        v-model="scope"
+        :options="[
+          { label: '文档', value: 'document' },
+          { label: '分段', value: 'chunk' }
+        ]"
+      />
+      <el-button type="primary" icon="Plus" @click="openCreate">新增字段</el-button>
     </div>
 
-    <!-- 分段级元数据 -->
-    <div class="scope-section">
-      <div class="scope-header">
-        <h3 class="section-title">分段级元数据</h3>
-        <el-button type="primary" size="small" @click="openCreateDialog('chunk')">添加字段</el-button>
-      </div>
-      <el-table :data="chunkFields" border style="width: 100%">
-        <el-table-column prop="name" label="字段名称" width="140" />
-        <el-table-column prop="key" label="标识" width="140" />
-        <el-table-column label="类型" width="100">
-          <template #default="{ row }">
-            {{ dataTypeOptions.find(o => o.value === row.dataType)?.label || row.dataType }}
-          </template>
-        </el-table-column>
-        <el-table-column label="选项" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.dataType === 'select'">{{ row.options.join(', ') }}</span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="必填" width="60" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.required" size="small" type="danger">必填</el-tag>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="可见" width="60" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.visible" size="small" :disabled="row.builtIn" @change="handleToggle(row as MetadataField, 'visible')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="可筛选" width="70" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.filterable" size="small" @change="handleToggle(row as MetadataField, 'filterable')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="检索过滤" width="80" align="center">
-          <template #default="{ row }">
-            <el-switch v-model="row.retrievalFilterable" size="small" @change="handleToggle(row as MetadataField, 'retrievalFilterable')" />
-          </template>
-        </el-table-column>
-        <el-table-column label="内置" width="60" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.builtIn" size="small" type="info">内置</el-tag>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="openEditDialog(row as MetadataField)">编辑</el-button>
-            <el-button v-if="!row.builtIn" link type="danger" size="small" @click="handleDelete(row as MetadataField)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-
-    <!-- 创建/编辑弹窗 -->
-    <el-dialog
-      v-model="dialogVisible"
-      :title="editingField ? '编辑字段' : '添加字段'"
-      width="500px"
+    <el-table
+      :data="fields"
+      row-key="id"
+      stripe
+      class="metadata-table"
+      v-loading="savingCount > 0"
     >
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="字段标识">
-          <el-input v-model="form.key" placeholder="如 project_name" :disabled="!!editingField" />
-        </el-form-item>
-        <el-form-item label="字段名称">
-          <el-input v-model="form.name" placeholder="如 项目名称" />
-        </el-form-item>
-        <el-form-item label="作用域">
-          <el-radio-group v-model="form.scope" :disabled="!!editingField">
-            <el-radio value="document">文档级</el-radio>
-            <el-radio value="chunk">分段级</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="数据类型">
-          <el-select v-model="form.dataType" style="width: 100%">
-            <el-option v-for="o in dataTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="form.dataType === 'select'" label="选项列表">
-          <el-input v-model="form.options" placeholder="用逗号分隔，如 选项A, 选项B" />
-        </el-form-item>
-        <el-form-item label="必填">
-          <el-switch v-model="form.required" />
-        </el-form-item>
-        <el-form-item label="可见">
-          <el-switch v-model="form.visible" />
-        </el-form-item>
-        <el-form-item label="可筛选">
-          <el-switch v-model="form.filterable" />
-        </el-form-item>
-        <el-form-item label="检索过滤">
-          <el-switch v-model="form.retrievalFilterable" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSave">确定</el-button>
-      </template>
-    </el-dialog>
-  </div>
+      <el-table-column label="排序" width="72" align="center">
+        <template #default="{ row }">
+          <el-icon
+            class="drag-handle"
+            draggable="true"
+            @dragstart="handleDragStart(row as MetadataField)"
+            @dragover.prevent
+            @drop="handleDrop(row as MetadataField)"
+          >
+            <Rank />
+          </el-icon>
+        </template>
+      </el-table-column>
+      <el-table-column prop="name" label="显示名" min-width="130" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span class="name-cell">
+            {{ row.name }}
+            <el-tag v-if="row.built_in" size="small" type="info">内置</el-tag>
+          </span>
+        </template>
+      </el-table-column>
+      <el-table-column prop="key" label="key" min-width="150" show-overflow-tooltip />
+      <el-table-column label="类型" width="84">
+        <template #default="{ row }">
+          {{ row.data_type === 'string' ? '文本' : row.data_type === 'number' ? '数字' : row.data_type === 'date' ? '日期' : row.data_type === 'select' ? '单选' : '布尔' }}
+        </template>
+      </el-table-column>
+      <el-table-column label="必填" width="76" align="center">
+        <template #default="{ row }">
+          <el-switch :model-value="row.required" disabled />
+        </template>
+      </el-table-column>
+      <el-table-column label="列表筛选" width="92" align="center">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.filterable"
+            @change="updateFlag(row as MetadataField, 'filterable', $event as boolean)"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="检索过滤" width="92" align="center">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.retrieval_filterable"
+            @change="updateFlag(row as MetadataField, 'retrieval_filterable', $event as boolean)"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="默认展示" width="92" align="center">
+        <template #default="{ row }">
+          <el-switch
+            :model-value="row.visible"
+            @change="updateFlag(row as MetadataField, 'visible', $event as boolean)"
+          />
+        </template>
+      </el-table-column>
+      <el-table-column label="启用" width="76" align="center">
+        <template #default>
+          <el-tag size="small" type="success">启用</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="150" fixed="right" align="center">
+        <template #default="{ row }">
+          <el-tooltip content="编辑" placement="top">
+            <el-button icon="Edit" circle text type="primary" @click="openEdit(row as MetadataField)" />
+          </el-tooltip>
+          <ConfirmDelete
+            v-if="!row.built_in"
+            :message="`确定删除字段“${row.name}”吗？`"
+            @confirm="removeField(row as MetadataField)"
+          />
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <MetadataFieldDialog
+      v-model:visible="dialogVisible"
+      :scope="scope"
+      :field="editingField"
+      :existing-fields="knowledgeStore.metadataFields"
+      :saving="fieldSaving"
+      @save="saveField"
+    />
+  </section>
 </template>
 
 <style lang="scss" scoped>
-.scope-section {
-  margin-bottom: 24px;
+.metadata-tab {
+  background: var(--el-bg-color);
+  border-radius: 8px;
+  padding: 16px;
+}
 
-  .scope-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
 
-    .section-title {
-      margin: 0;
-      font-size: 15px;
-      font-weight: 600;
-      color: #303133;
-    }
+.name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.drag-handle {
+  color: var(--el-text-color-secondary);
+  cursor: move;
+
+  &:hover {
+    color: var(--el-color-primary);
   }
 }
 
-.text-muted {
-  color: #c0c4cc;
-  font-size: 12px;
+:deep(.el-button + .el-button) {
+  margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>
