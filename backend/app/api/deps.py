@@ -43,3 +43,15 @@ async def get_current_user(authorization: str | None = Header(default=None), db:
     if not user or not user.is_active:
         raise BizException(ErrorCode.UNAUTHORIZED, "用户不存在或已禁用")
     return user
+
+
+def require_roles(*roles: str):
+    """角色守卫依赖工厂：校验当前用户角色是否在允许列表内。
+
+    用法：me=Depends(require_roles("admin")) 或 me=Depends(require_roles("admin", "editor"))
+    """
+    async def _check(me: User = Depends(get_current_user)) -> User:
+        if me.role not in roles:
+            raise BizException(ErrorCode.FORBIDDEN, "无权限执行此操作")
+        return me
+    return _check
