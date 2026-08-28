@@ -14,6 +14,17 @@ from app.models.retrieval_testing import (
     RetrievalTestSet,
 )
 from app.models.conversation import Conversation, Feedback, Message
+from app.models.tool import Tool
+from app.models.skill import Skill
+from app.models.mcp import Mcp
+from app.models.agent import Agent
+from app.models.workflow import (
+    Workflow,
+    WorkflowExecution,
+    WorkflowTemplate,
+    WorkflowTodo,
+    WorkflowVersion,
+)
 
 __all__ = [
     "Base",
@@ -34,4 +45,13 @@ __all__ = [
     "Conversation",
     "Message",
     "Feedback",
+    "Tool",
+    "Skill",
+    "Mcp",
+    "Agent",
+    "Workflow",
+    "WorkflowVersion",
+    "WorkflowExecution",
+    "WorkflowTodo",
+    "WorkflowTemplate",
 ]
