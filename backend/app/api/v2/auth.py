@@ -2,7 +2,7 @@
 
 提供登录、刷新 token、获取当前用户信息、登出等接口。
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import _claims_from_header, get_current_user
@@ -14,12 +14,14 @@ from app.security.jwt import create_access_token, create_refresh_token
 from app.schemas.auth import LoginParams, LoginResult, RefreshParams, RefreshResult, UserInfo
 from app.exceptions import BizException, ErrorCode
 from app.config import settings
+from app.core.rate_limit import limiter, LOGIN_RATE_LIMIT
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/login")
-async def login(params: LoginParams, db: AsyncSession = Depends(get_db)):
+@limiter.limit(LOGIN_RATE_LIMIT)
+async def login(request: Request, params: LoginParams, db: AsyncSession = Depends(get_db)):
     """用户登录。
 
     按用户名查询用户并校验密码，成功后签发 access/refresh token；
