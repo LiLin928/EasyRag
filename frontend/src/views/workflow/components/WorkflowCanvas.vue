@@ -19,7 +19,7 @@ const edgeTypes = {
   default: markRaw(AddButtonEdge)
 }
 const execStore = useWorkflowExecutionStore()
-const { onConnect, onNodeDragStop, onNodeDoubleClick, onNodesChange } = useVueFlow()
+const { onConnect, onNodeDragStop, onNodeDoubleClick, onNodesChange, onEdgesChange } = useVueFlow()
 
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
@@ -84,6 +84,14 @@ onNodesChange((changes) => {
   })
 })
 
+onEdgesChange((changes) => {
+  changes.forEach(change => {
+    if (change.type === 'remove') {
+      editorStore.removeEdge(change.id)
+    }
+  })
+})
+
 function handleDrop(event: DragEvent) {
   const nodeType = event.dataTransfer?.getData('nodeType')
   if (!nodeType) return
@@ -128,7 +136,7 @@ function getExecDuration(nodeId: string) {
     >
       <Background pattern-gap="20" :size="1" />
       <Controls />
-      <MiniMap />
+      <!-- <MiniMap /> -->
       
       <template #node-start="nodeProps">
         <BaseNodeCard :node="nodeProps" :exec-status="getExecStatus(nodeProps.id)" :exec-duration="getExecDuration(nodeProps.id)" />

@@ -62,8 +62,8 @@ async function sendMessage() {
   // 使用 SSE 发送消息
   await connect(getChatUrl(), {
     body: {
-      agentId: props.agent.id,
-      message: userContent
+      
+      question: userContent
     },
     onEvent: (event, data) => {
       handleSSEEvent(assistantMessage, event, data)
@@ -84,7 +84,7 @@ function handleSSEEvent(message: ChatMessage, event: string, data: any) {
     case 'token':
       // 追加文本
       if (message) {
-        message.content = (message.content || '') + data.text
+        message.content = (message.content || '') + data.token
       }
       break
 

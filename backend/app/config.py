@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     database_url: str = Field(...)           # required
-    redis_url: str = "redis://localhost:6379/0"
+    # redis_url removed - using PostgreSQL queue
 
     jwt_access_expire: int = 7200
     jwt_refresh_expire: int = 604800
@@ -50,7 +50,15 @@ class Settings(BaseSettings):
 
     # 对象存储（本地 FS → MinIO）
     storage_type: str = "local"        # local | minio
-    storage_local_dir: str = "./data/files"
+    \
+    # MinIO 配置
+    minio_endpoint: str = "localhost:9000"
+    minio_access_key: str = "minioadmin"
+    minio_secret_key: str = "minioadmin"
+    minio_bucket: str = "easyrag"
+    minio_secure: bool = False
+    minio_public_url: str | None = None
 
 
 settings = Settings()
+

@@ -1,4 +1,4 @@
-﻿import type { RouteRecordRaw } from 'vue-router'
+import type { RouteRecordRaw } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -78,6 +78,12 @@ export const routes: RouteRecordRaw[] = [
         name: 'Mcp',
         component: () => import('@/views/mcp/McpView.vue'),
         meta: { title: 'MCP 服务', icon: 'Connection', requiresAuth: true }
+      },
+      {
+        path: 'profile',
+        name: 'Profile',
+        component: () => import('@/views/profile/ProfileView.vue'),
+        meta: { title: '个人中心', icon: 'User', requiresAuth: true }
       },
       {
         path: 'settings',

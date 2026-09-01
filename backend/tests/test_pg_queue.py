@@ -29,7 +29,7 @@ class TestPGJobQueueEnqueue:
 
     @pytest.mark.asyncio
     async def test_enqueue_creates_execution_and_job(self, mock_session):
-        """enqueue should create WorkflowExecution and job_queue record."""
+        """enqueue_with_session should create WorkflowExecution and job_queue record."""
         workflow_id = uuid.uuid4()
         user_id = uuid.uuid4()
         inputs = {"key": "value"}
@@ -39,7 +39,7 @@ class TestPGJobQueueEnqueue:
         mock_result.scalar.return_value = uuid.uuid4()
         mock_session.execute.return_value = mock_result
         
-        result = await PGJobQueue.enqueue(
+        result = await PGJobQueue.enqueue_with_session(
             session=mock_session,
             workflow_id=workflow_id,
             inputs=inputs,
@@ -54,7 +54,7 @@ class TestPGJobQueueEnqueue:
 
     @pytest.mark.asyncio
     async def test_enqueue_returns_execution_id(self, mock_session):
-        """enqueue should return execution_id."""
+        """enqueue_with_session should return execution_id."""
         workflow_id = uuid.uuid4()
         user_id = uuid.uuid4()
         expected_execution_id = str(uuid.uuid4())
@@ -63,7 +63,7 @@ class TestPGJobQueueEnqueue:
         mock_result.scalar.return_value = expected_execution_id
         mock_session.execute.return_value = mock_result
         
-        result = await PGJobQueue.enqueue(
+        result = await PGJobQueue.enqueue_with_session(
             session=mock_session,
             workflow_id=workflow_id,
             inputs={},

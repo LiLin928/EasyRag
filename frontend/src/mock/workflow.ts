@@ -1,4 +1,4 @@
-import type { Workflow, Template, Execution, WfNode, WfEdge } from '@/types/workflow'
+import type { Workflow, Template, Execution, WfNode, WfEdge, ExecutionDetail } from '@/types/workflow'
 
 // ========== 模拟数据 ==========
 
@@ -212,6 +212,229 @@ export const mockEdges: WfEdge[] = [
   { id: 'e6', source: 'var_1', target: 'end' }
 ]
 
+// 模拟执行详情数据
+const mockExecutionDetails: Record<string, ExecutionDetail> = {
+  'exec-1': {
+    id: 'exec-1',
+    workflowId: 'wf-1',
+    workflowName: '标准资料解析',
+    status: 'success',
+    trigger: 'manual',
+    startTime: '2026-08-03 14:30:00',
+    endTime: '2026-08-03 14:30:12',
+    duration: 12500,
+    nodeProgress: '5/5',
+    inputs: {
+      query: '请分析这份文档的主要内容'
+    },
+    outputs: {
+      report: '文档主要包含以下内容：1. 背景介绍... 2. 核心观点...'
+    },
+    nodes: [
+      {
+        nodeId: 'start',
+        nodeName: '开始',
+        nodeType: 'start',
+        status: 'success',
+        startTime: '2026-08-03 14:30:00',
+        endTime: '2026-08-03 14:30:00',
+        duration: 0,
+        input: { query: '请分析这份文档的主要内容' },
+        output: { query: '请分析这份文档的主要内容' }
+      },
+      {
+        nodeId: 'llm_1',
+        nodeName: 'LLM 分析',
+        nodeType: 'llm',
+        status: 'success',
+        startTime: '2026-08-03 14:30:01',
+        endTime: '2026-08-03 14:30:08',
+        duration: 7000,
+        input: { query: '请分析这份文档的主要内容' },
+        output: {
+          result: 'success',
+          content: '文档主要包含以下内容...'
+        }
+      },
+      {
+        nodeId: 'cond_1',
+        nodeName: '判断结果',
+        nodeType: 'condition',
+        status: 'success',
+        startTime: '2026-08-03 14:30:08',
+        endTime: '2026-08-03 14:30:08',
+        duration: 0,
+        input: { score: 0.95 },
+        output: { result: true }
+      },
+      {
+        nodeId: 'tpl_1',
+        nodeName: '生成报告',
+        nodeType: 'template_render',
+        status: 'success',
+        startTime: '2026-08-03 14:30:09',
+        endTime: '2026-08-03 14:30:09',
+        duration: 100,
+        input: { content: '文档主要包含以下内容...' },
+        output: { result: '分析报告：文档主要包含以下内容...' }
+      },
+      {
+        nodeId: 'end',
+        nodeName: '结束',
+        nodeType: 'end',
+        status: 'success',
+        startTime: '2026-08-03 14:30:10',
+        endTime: '2026-08-03 14:30:10',
+        duration: 0,
+        input: { report: '分析报告：文档主要包含以下内容...' },
+        output: { result: '流程结束' }
+      }
+    ]
+  },
+  'exec-2': {
+    id: 'exec-2',
+    workflowId: 'wf-2',
+    workflowName: '文档摘要生成',
+    status: 'running',
+    trigger: 'api',
+    startTime: '2026-08-03 15:00:00',
+    nodeProgress: '3/4',
+    inputs: {
+      documents: ['doc1.pdf', 'doc2.pdf']
+    },
+    outputs: {},
+    nodes: [
+      {
+        nodeId: 'start',
+        nodeName: '开始',
+        nodeType: 'start',
+        status: 'success',
+        startTime: '2026-08-03 15:00:00',
+        endTime: '2026-08-03 15:00:00',
+        duration: 0,
+        input: { documents: ['doc1.pdf', 'doc2.pdf'] },
+        output: { documents: ['doc1.pdf', 'doc2.pdf'] }
+      },
+      {
+        nodeId: 'rag_1',
+        nodeName: 'RAG 检索',
+        nodeType: 'rag',
+        status: 'success',
+        startTime: '2026-08-03 15:00:01',
+        endTime: '2026-08-03 15:00:05',
+        duration: 4000,
+        input: { query: '摘要生成' },
+        output: { documents: [], context: '相关文档内容...' }
+      },
+      {
+        nodeId: 'llm_1',
+        nodeName: 'LLM 生成',
+        nodeType: 'llm',
+        status: 'running',
+        startTime: '2026-08-03 15:00:06',
+        duration: 0,
+        input: { context: '相关文档内容...' }
+      }
+    ]
+  },
+  'exec-3': {
+    id: 'exec-3',
+    workflowId: 'wf-1',
+    workflowName: '标准资料解析',
+    status: 'error',
+    trigger: 'schedule',
+    startTime: '2026-08-03 10:00:00',
+    endTime: '2026-08-03 10:00:08',
+    duration: 8000,
+    nodeProgress: '4/5',
+    inputs: {
+      query: '自动执行任务'
+    },
+    outputs: {},
+    nodes: [
+      {
+        nodeId: 'start',
+        nodeName: '开始',
+        nodeType: 'start',
+        status: 'success',
+        startTime: '2026-08-03 10:00:00',
+        endTime: '2026-08-03 10:00:00',
+        duration: 0
+      },
+      {
+        nodeId: 'llm_1',
+        nodeName: 'LLM 分析',
+        nodeType: 'llm',
+        status: 'success',
+        startTime: '2026-08-03 10:00:01',
+        endTime: '2026-08-03 10:00:06',
+        duration: 5000,
+        input: { query: '自动执行任务' },
+        output: { result: 'success', content: '分析完成' }
+      },
+      {
+        nodeId: 'cond_1',
+        nodeName: '判断结果',
+        nodeType: 'condition',
+        status: 'success',
+        startTime: '2026-08-03 10:00:06',
+        endTime: '2026-08-03 10:00:06',
+        duration: 0
+      },
+      {
+        nodeId: 'tpl_1',
+        nodeName: '生成报告',
+        nodeType: 'template_render',
+        status: 'error',
+        startTime: '2026-08-03 10:00:07',
+        endTime: '2026-08-03 10:00:08',
+        duration: 1000,
+        error: '模板渲染失败：缺少必要变量'
+      },
+      {
+        nodeId: 'end',
+        nodeName: '结束',
+        nodeType: 'end',
+        status: 'wait',
+        startTime: '2026-08-03 10:00:08',
+        duration: 0
+      }
+    ]
+  },
+  'exec-4': {
+    id: 'exec-4',
+    workflowId: 'wf-2',
+    workflowName: '文档摘要生成',
+    status: 'wait',
+    trigger: 'agent',
+    startTime: '2026-08-03 13:45:00',
+    nodeProgress: '2/4',
+    inputs: {
+      query: '智能体触发任务'
+    },
+    outputs: {},
+    nodes: [
+      {
+        nodeId: 'start',
+        nodeName: '开始',
+        nodeType: 'start',
+        status: 'success',
+        startTime: '2026-08-03 13:45:00',
+        endTime: '2026-08-03 13:45:00',
+        duration: 0
+      },
+      {
+        nodeId: 'human_1',
+        nodeName: '人工审核',
+        nodeType: 'human',
+        status: 'wait',
+        startTime: '2026-08-03 13:45:01',
+        duration: 0
+      }
+    ]
+  }
+}
+
 // ========== Mock 辅助函数 ==========
 
 export function handleWorkflowMock(url: string, method: string, data: any): any {
@@ -314,6 +537,15 @@ export function handleWorkflowMock(url: string, method: string, data: any): any 
   if (url.match(/\/executions$/) && method === 'GET') {
     return { code: 0, data: mockExecutions }
   }
+
+  // 执行详情 - 修复索引类型问题
+  if (url.match(/\/executions\/[^/]+$/) && method === 'GET') {
+    const match = url.match(/\/executions\/(.+)$/)
+    const execId = match ? match[1] : ''
+    const detail = execId ? mockExecutionDetails[execId] : undefined
+    if (!detail) return { code: 404, message: 'Not found' }
+    return { code: 0, data: detail }
+  }
   
   // 执行工作流
   if (url.match(/\/workflows\/.+\/execute$/) && method === 'POST') {
@@ -322,5 +554,3 @@ export function handleWorkflowMock(url: string, method: string, data: any): any 
   
   return null
 }
-
-

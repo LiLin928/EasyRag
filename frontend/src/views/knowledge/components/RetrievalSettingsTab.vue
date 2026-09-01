@@ -1,9 +1,17 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import type { RetrievalSettingsPayload } from '@/types/knowledge'
+
+function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  return (...args: Parameters<T>) => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => fn(...args), delay)
+  }
+}
 
 interface Props {
   kbId: string
@@ -131,6 +139,31 @@ function hydrate(updateModels: boolean): void {
   }
 }
 
+// Auto-save with debounce (500ms)
+const debouncedSave = debounce(async () => {
+  if (!validate()) return
+  const retrievalConfig: Record<string, unknown> = {}
+  ;(Object.keys(defaults) as SettingsKey[]).forEach((key) => {
+    if (!valuesEqual(form[key], initialValues[key])) retrievalConfig[key] = form[key]
+  })
+  const payload: RetrievalSettingsPayload = {}
+  if (Object.keys(retrievalConfig).length) payload.retrieval_config = retrievalConfig
+  if (Object.keys(payload).length) {
+    try {
+      saving.value = true
+      await knowledgeStore.saveRetrievalSettings(props.kbId, payload)
+      hydrate(false)
+      ElMessage.success('检索设置已自动保存')
+    } finally {
+      saving.value = false
+    }
+  }
+}, 500)
+
+watch(() => form, () => {
+  debouncedSave()
+}, { deep: true })
+
 function sourceFor(key: SettingsKey): '测试覆盖' | '知识库' | '场景' | '系统默认' {
   const source = knowledgeStore.retrievalSettings?.values[key]?.source
   if (source === 'override') return '测试覆盖'
@@ -145,6 +178,15 @@ function modelSource(kind: 'embedding' | 'rerank'): '测试覆盖' | '知识库'
     : rerankModelId.value !== initialRerankModelId.value
   return changed ? '知识库' : '系统默认'
 }
+
+const methodDescription = computed(() => {
+  const desc: Record<string, string> = {
+    vector: '已切换至向量检索：基于语义相似度匹配',
+    keyword: '已切换至关键词检索：基于关键词精确匹配',
+    hybrid: '已切换至混合检索：融合向量与关键词结果'
+  }
+  return desc[form.method as string] || ''
+})
 
 function valuesEqual(left: SettingsValue, right: SettingsValue): boolean {
   return left === right
@@ -329,6 +371,7 @@ function openKbForm(): void {
               <el-radio-button value="keyword">关键词</el-radio-button>
               <el-radio-button value="hybrid">混合</el-radio-button>
             </el-radio-group>
+            <div class="method-description">{{ methodDescription }}</div>
           </el-form-item>
           <div class="field-grid">
             <el-form-item v-for="field in numericFields.slice(0, 3)" :key="field.key">

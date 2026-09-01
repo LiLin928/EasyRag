@@ -1,14 +1,14 @@
 """Saved retrieval test set and case routes."""
 from typing import Any
 
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.core.engine.pg_queue import PGJobQueue
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user
 from app.api.response import ok
-from app.config import settings
+
 from app.schemas.retrieval_testing import (
     RetrievalTestCaseCreate,
     RetrievalTestCaseUpdate,
@@ -140,8 +140,8 @@ async def start_run(set_id: str, body: RetrievalRunCreate, me=Depends(get_curren
         chunk_metadata=body.chunk_metadata,
     )
     if getattr(run, "_newly_created", False):
-        pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-        await pool.enqueue_job("run_retrieval_test_task", str(run.id))
+        
+        await PGJobQueue.enqueue_task('retrieval_test', {"run_id": str(run.id)})
     return ok(service.test_run_output(run))
 
 
@@ -166,3 +166,5 @@ async def list_run_cases(run_id: str, me=Depends(get_current_user)):
 async def cancel_run(run_id: str, me=Depends(get_current_user)):
     run = await service.cancel_run(run_id, me.id)
     return ok(service.test_run_output(run))
+
+

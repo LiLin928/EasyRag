@@ -15,9 +15,9 @@ const emit = defineEmits<{
   config: [agent: Agent]
   delete: [id: string]
   toggle: [id: string, enabled: boolean]
-  chat: [agent: Agent]
 }>()
 
+// 抽屉状态
 const chatDrawerVisible = ref(false)
 
 // 能力类型列表
@@ -36,6 +36,7 @@ function handleConfig() {
   emit('config', props.data)
 }
 
+// 点击对话：打开抽屉在当前页面进行对话
 function handleChat() {
   chatDrawerVisible.value = true
 }
@@ -89,13 +90,18 @@ function handleDelete() {
       <el-button size="small" icon="Setting" @click="handleConfig">
         配置
       </el-button>
-      <el-button size="small" icon="ChatDotRound" @click="handleChat">
+      <el-button 
+        size="small" 
+        type="primary"
+        icon="ChatDotRound" 
+        @click="handleChat"
+      >
         对话
       </el-button>
       <ConfirmDelete @confirm="handleDelete" />
     </div>
 
-    <!-- 对话抽屉 -->
+    <!-- 智能体对话抽屉 -->
     <AgentChatDrawer
       v-model:visible="chatDrawerVisible"
       :agent="data"

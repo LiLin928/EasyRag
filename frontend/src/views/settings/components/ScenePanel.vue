@@ -115,16 +115,16 @@ async function handleSubmit(scene: Scene) {
         <div class="card-params">
           <div class="param-item">
             <span class="param-label">分块大小:</span>
-            <span class="param-value">{{ scene.config.chunk_size }}</span>
+            <span class="param-value">{{ scene.config?.chunk_size ?? 512 }}</span>
           </div>
           <div class="param-item">
             <span class="param-label">召回数量:</span>
-            <span class="param-value">{{ scene.config.top_k }}</span>
+            <span class="param-value">{{ scene.config?.top_k ?? 5 }}</span>
           </div>
         </div>
         <div class="card-prompt">
           <div class="prompt-label">系统提示词:</div>
-          <div class="prompt-content">{{ scene.config.system_prompt }}</div>
+          <div class="prompt-content">{{ scene.config?.system_prompt ?? '' }}</div>
         </div>
       </div>
     </div>
@@ -275,3 +275,4 @@ async function handleSubmit(scene: Scene) {
   -webkit-box-orient: vertical;
 }
 </style>
+

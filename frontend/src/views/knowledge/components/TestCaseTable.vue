@@ -80,7 +80,7 @@ function getStatusInfo(status?: TestCaseStatus) {
 }
 
 function expectedLabel(ids: string[]): string {
-  return ids.length ? ids.length + ' \u7BC7' : '\u672A\u6807\u6CE8'
+  return ids.length ? ids.length + ' 篇' : '未标注'
 }
 
 function handleEdit(c: RetrievalTestCase) {
@@ -117,8 +117,8 @@ const emit = defineEmits<{
 <template>
   <div class="test-case-table">
     <div class="toolbar">
-      <el-input v-model="keyword" placeholder="\u641C\u7D22\u67E5\u8BE2" clearable size="small" style="width: 180px" />
-      <el-select v-model="tagFilter" placeholder="\u6807\u7B7E" clearable size="small" style="width: 120px">
+      <el-input v-model="keyword" placeholder="搜索查询" clearable size="small" style="width: 180px" />
+      <el-select v-model="tagFilter" placeholder="标签" clearable size="small" style="width: 120px">
         <el-option v-for="tag in allTags" :key="tag" :label="tag" :value="tag" />
       </el-select>
       <el-select v-model="statusFilter" size="small" style="width: 120px">
@@ -128,13 +128,13 @@ const emit = defineEmits<{
       <div class="toolbar-spacer" />
 
       <template v-if="!runMode">
-        <el-button size="small" icon="Plus" @click="handleAdd">\u65B0\u5EFA\u7528\u4F8B</el-button>
-        <el-button size="small" :disabled="!selectedIds.length" @click="batchSetEnabled(true)">\u6279\u91CF\u542F\u7528</el-button>
-        <el-button size="small" :disabled="!selectedIds.length" @click="batchSetEnabled(false)">\u6279\u91CF\u7981\u7528</el-button>
+        <el-button size="small" icon="Plus" @click="handleAdd">新建用例</el-button>
+        <el-button size="small" :disabled="!selectedIds.length" @click="batchSetEnabled(true)">批量启用</el-button>
+        <el-button size="small" :disabled="!selectedIds.length" @click="batchSetEnabled(false)">批量禁用</el-button>
         <el-button size="small" type="primary" :disabled="!selectedIds.length" @click="emit('run-selected', selectedIds)">
-          \u8FD0\u884C\u9009\u4E2D
+          运行选中
         </el-button>
-        <el-button size="small" type="primary" @click="emit('run-all')">\u8FD0\u884C\u5168\u90E8</el-button>
+        <el-button size="small" type="primary" @click="emit('run-all')">运行全部</el-button>
       </template>
     </div>
 
@@ -145,9 +145,9 @@ const emit = defineEmits<{
       @selection-change="selectionChanged"
     >
       <el-table-column v-if="!runMode" type="selection" width="40" />
-      <el-table-column label="\u67E5\u8BE2" min-width="200" prop="query" show-overflow-tooltip />
+      <el-table-column label="查询" min-width="200" prop="query" show-overflow-tooltip />
 
-      <el-table-column label="\u671F\u671B\u6587\u6863" width="100">
+      <el-table-column label="期望文档" width="100">
         <template #default="{ row }">
           <span :class="{ 'expected-unset': !row.expected_doc_ids.length }">
             {{ expectedLabel(row.expected_doc_ids) }}
@@ -155,31 +155,31 @@ const emit = defineEmits<{
         </template>
       </el-table-column>
 
-      <el-table-column label="\u6807\u7B7E" width="120">
+      <el-table-column label="标签" width="120">
         <template #default="{ row }">
           <el-tag v-for="tag in row.tags" :key="tag" size="small" style="margin: 1px">{{ tag }}</el-tag>
         </template>
       </el-table-column>
 
-      <el-table-column v-if="runMode" label="\u72B6\u6001" width="100">
+      <el-table-column v-if="runMode" label="状态" width="100">
         <template #default="{ row }">
           <StatusChip :type="getStatusInfo(row.status).type" :label="getStatusInfo(row.status).label" dot />
         </template>
       </el-table-column>
 
-      <el-table-column v-if="runMode" label="\u9996\u4E2A\u547D\u4E2D\u6392\u540D" width="110" align="center">
+      <el-table-column v-if="runMode" label="首个命中排名" width="110" align="center">
         <template #default="{ row }">
           {{ row.first_expected_hit_rank ?? '-' }}
         </template>
       </el-table-column>
 
-      <el-table-column v-if="runMode" label="\u8017\u65F6" width="80" align="center">
+      <el-table-column v-if="runMode" label="耗时" width="80" align="center">
         <template #default="{ row }">
           {{ row.latency_ms != null ? row.latency_ms + 'ms' : '-' }}
         </template>
       </el-table-column>
 
-      <el-table-column v-if="!runMode" label="\u542F\u7528" width="60" align="center">
+      <el-table-column v-if="!runMode" label="启用" width="60" align="center">
         <template #default="{ row }">
           <el-switch
             :model-value="row.enabled"
@@ -189,7 +189,7 @@ const emit = defineEmits<{
         </template>
       </el-table-column>
 
-      <el-table-column v-if="runMode" label="\u64CD\u4F5C" width="60" fixed="right">
+      <el-table-column v-if="runMode" label="操作" width="60" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="row.status === 'failed'"
@@ -206,14 +206,14 @@ const emit = defineEmits<{
             size="small"
             @click="emit('view-case', row as RetrievalTestCase)"
           >
-            \u660E\u7EC6
+            明细
           </el-button>
         </template>
       </el-table-column>
 
-      <el-table-column v-if="!runMode" label="\u64CD\u4F5C" width="120" fixed="right">
+      <el-table-column v-if="!runMode" label="操作" width="120" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" size="small" @click="handleEdit(row as RetrievalTestCase)">\u7F16\u8F91</el-button>
+          <el-button link type="primary" size="small" @click="handleEdit(row as RetrievalTestCase)">编辑</el-button>
           <ConfirmDelete @confirm="handleDelete((row as RetrievalTestCase).id)" />
         </template>
       </el-table-column>

@@ -10,7 +10,7 @@ const router = useRouter()
 async function handleCommand(command: string) {
   switch (command) {
     case 'profile':
-      router.push('/settings')
+      router.push('/profile')
       break
     case 'settings':
       router.push('/settings')

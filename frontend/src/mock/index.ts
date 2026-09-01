@@ -8,13 +8,16 @@ import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'a
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - 该深路径未随包提供类型声明，见 vite-env.d.ts 中的模块声明
 import xhrAdapter from 'axios/lib/adapters/xhr.js'
-import { mockLoginResponse, mockRefreshResponse, mockUserInfoResponse } from './auth'
+import { mockLoginResponse, mockRefreshResponse, mockUserInfoResponse, mockLogoutResponse } from './auth'
 import { handleKnowledgeMock, mockTree, mockElements, mockParseTask } from './knowledge'
-import { mockConversations, mockMessages, mockScenes } from './chat'
+import { mockMessages, mockScenes } from './chat'
 import { handleWorkflowMock } from './workflow'
 import { mockTools, createMockTestResult } from './tool'
 import { mockSkills } from './skill'
 import { mockMcps, createMockTestResult as createMcpTestResult } from './mcp'
+import { mockAgents } from './agent'
+import { mockTodos, submitMockTodo } from './todo'
+import { mockModels } from './settings'
 import type { Tool } from '@/types/tool'
 import type { Skill } from '@/types/skill'
 import type { Mcp } from '@/types/mcp'
@@ -24,6 +27,28 @@ const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
 // Mock 数据存储（供其它模块读写共享状态）
 export const mockData: Record<string, unknown> = {}
+
+// 可变的会话列表（支持增删）
+let mockConversations = [
+  {
+    id: 'conv1',
+    title: '标书技术方案分析',
+    lastTime: '2026-08-03 18:00:00',
+    msgCount: 4
+  },
+  {
+    id: 'conv2',
+    title: '合同条款解读',
+    lastTime: '2026-08-02 14:30:00',
+    msgCount: 2
+  },
+  {
+    id: 'conv3',
+    title: '项目实施方案建议',
+    lastTime: '2026-08-01 09:15:00',
+    msgCount: 6
+  }
+]
 
 // 解析请求体（兼容 axios transformRequest 后的字符串与原始对象）
 function parseRequestData(raw: unknown): Record<string, unknown> {
@@ -99,6 +124,9 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
   if (url.includes('/auth/user-info') && method === 'GET') {
     return mockUserInfoResponse
   }
+  if (url.includes('/auth/logout') && method === 'POST') {
+    return mockLogoutResponse
+  }
 
   // ========== 结构树与解析任务 ==========
   if (url.includes('/documents/') && url.includes('/tree')) {
@@ -106,18 +134,54 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
   } else if (url.includes('/documents/') && url.includes('/elements')) {
     return ok({ list: mockElements, total: mockElements.length })
   } else if (url.includes('/parse-tasks/')) {
-    // 模拟解析进度递增
-    const task: ParseTask = { ...mockParseTask }
-    task.pct = Math.min(100, task.pct + Math.random() * 20)
-    if (task.pct >= 100) {
-      task.status = 'done'
+    // 模拟解析任务详情
+    const taskMatch = url.match(/\/parse-tasks\/([^\/]+)/)
+    if (taskMatch) {
+      const task: ParseTask = {
+        id: taskMatch[1],
+        docId: 'doc1',
+        status: 'done',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        progress: 100,
+        result: mockParseTask
+      }
+      return ok(task)
     }
-    return ok(task)
   }
 
   // ========== 对话相关 ==========
-  if (url.includes('/chat/conversations') && method === 'GET') {
-    return ok(mockConversations)
+  if (url.includes('/chat/conversations')) {
+    if (method === 'GET') {
+      // GET /chat/conversations - 获取列表
+      return ok(mockConversations)
+    } else if (method === 'POST') {
+      // POST /chat/conversations - 创建会话
+      const title = requestString(requestData, 'title', '新对话')
+      const agentId = requestString(requestData, 'agentId', '')
+        const agentName = requestString(requestData, 'agentName', '')
+        const newConv = {
+        id: 'conv' + Date.now(),
+        title: title,
+        lastTime: new Date().toISOString(),
+        msgCount: 0,
+          agentId,
+          agentName
+      }
+      mockConversations.unshift(newConv)
+      return ok(newConv)
+    } else if (method === 'DELETE') {
+      // DELETE /chat/conversations/:id - 删除会话
+      const deleteMatch = url.match(/\/chat\/conversations\/([^\/]+)/)
+      if (deleteMatch) {
+        const index = mockConversations.findIndex(c => c.id === deleteMatch[1])
+        if (index > -1) {
+          mockConversations.splice(index, 1)
+          return ok({ success: true })
+        }
+        return { code: 404, message: '会话不存在', data: null }
+      }
+    }
   } else if (url.includes('/chat/conversations/') && url.includes('/messages')) {
     return ok(mockMessages)
   } else if (url.includes('/scenes')) {
@@ -132,41 +196,34 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
     }
   }
 
+  // ========== 工具/技能/MCP 测试 ==========
+  if (url.includes('/tools/') && url.includes('/test')) {
+    return ok(createMockTestResult())
+  }
+  if (url.includes('/skills/') && url.includes('/test')) {
+    return ok(createMockTestResult())
+  }
+  if (url.includes('/mcps/') && url.includes('/test')) {
+    return ok(createMcpTestResult())
+  }
+
   // ========== 工具相关 ==========
-  if (url.includes('/tools') && !url.includes('/test')) {
+  if (url.includes('/tools')) {
     if (method === 'GET') {
-      // GET /tools - 获取列表
-      if (url.match(/^\/tools$/) || url.match(/^\/tools\?/)) {
-        return ok(mockTools)
-      }
-      // GET /tools/:id - 获取详情
-      const detailMatch = url.match(/\/tools\/([^\/]+)/)
-      if (detailMatch && !url.includes('/test')) {
-        const tool = mockTools.find(t => t.id === detailMatch[1])
-        if (tool) {
-          return ok(tool)
-        }
-        return { code: 404, message: '工具不存在', data: null }
-      }
+      return ok(mockTools)
     } else if (method === 'POST') {
-      // POST /tools - 创建工具
       const newTool: Tool = {
         id: 'tool' + Date.now(),
-        name: requestString(requestData, 'name'),
-        type: requestString(requestData, 'type', 'HTTP') as Tool['type'],
-        desc: requestString(requestData, 'desc'),
-        sig: requestString(requestData, 'sig'),
+        name: requestString(requestData, 'name', '新工具'),
+        desc: requestString(requestData, 'desc', ''),
+        type: requestString(requestData, 'type', 'api'),
+        config: requestData.config as Record<string, unknown> || {},
         enabled: requestBoolean(requestData, 'enabled', true),
-        params: requestList<Tool['params'][number]>(requestData, 'params'),
-        auth: (requestData.auth instanceof Object && 'mode' in requestData.auth
-          ? requestData.auth
-          : { mode: 'none', key: '' }) as Tool['auth'],
         createdAt: new Date().toISOString()
       }
       mockTools.push(newTool)
       return ok(newTool)
     } else if (method === 'PUT') {
-      // PUT /tools/:id - 更新工具
       const updateMatch = url.match(/\/tools\/([^\/]+)/)
       if (updateMatch) {
         const index = mockTools.findIndex(t => t.id === updateMatch[1])
@@ -174,10 +231,8 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
           mockTools[index] = { ...mockTools[index], ...requestData }
           return ok(mockTools[index])
         }
-        return { code: 404, message: '工具不存在', data: null }
       }
     } else if (method === 'DELETE') {
-      // DELETE /tools/:id - 删除工具
       const deleteMatch = url.match(/\/tools\/([^\/]+)/)
       if (deleteMatch) {
         const index = mockTools.findIndex(t => t.id === deleteMatch[1])
@@ -185,58 +240,26 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
           mockTools.splice(index, 1)
           return ok({ success: true })
         }
-        return { code: 404, message: '工具不存在', data: null }
       }
-    }
-  } else if (url.includes('/tools/') && url.includes('/test') && method === 'POST') {
-    // POST /tools/:id/test - 测试工具
-    const testMatch = url.match(/\/tools\/([^\/]+)\/test/)
-    if (testMatch) {
-      const toolId = testMatch[1]
-      const result = createMockTestResult(toolId, requestData)
-      return ok(result)
     }
   }
 
   // ========== 技能相关 ==========
-  if (url.includes('/skills') && !url.includes('/duplicate')) {
+  if (url.includes('/skills')) {
     if (method === 'GET') {
-      // GET /skills - 获取列表
-      if (url.match(/^\/skills$/) || url.match(/^\/skills\?/)) {
-        return ok(mockSkills)
-      }
-      // GET /skills/:id - 获取详情
-      const detailMatch = url.match(/\/skills\/([^\/]+)/)
-      if (detailMatch && !url.includes('/duplicate')) {
-        const skill = mockSkills.find(s => s.id === detailMatch[1])
-        if (skill) {
-          return ok(skill)
-        }
-        return { code: 404, message: '技能不存在', data: null }
-      }
+      return ok(mockSkills)
     } else if (method === 'POST') {
-      // POST /skills - 创建技能
       const newSkill: Skill = {
         id: 'skill' + Date.now(),
-        ico: requestString(requestData, 'ico', '🔧'),
-        name: requestString(requestData, 'name'),
-        scope: 'custom',
-        ver: '1.0.0',
-        desc: requestString(requestData, 'desc'),
-        trigger: requestString(requestData, 'trigger'),
-        prompt: requestString(requestData, 'prompt'),
-        tools: requestList<Skill['tools'][number]>(requestData, 'tools'),
-        docs: requestList<Skill['docs'][number]>(requestData, 'docs'),
-        wfs: requestList<Skill['wfs'][number]>(requestData, 'wfs'),
-        examples: requestList<Skill['examples'][number]>(requestData, 'examples'),
-        scripts: requestList<Skill['scripts'][number]>(requestData, 'scripts'),
-        budget: requestNumber(requestData, 'budget', 100),
-        used: 0
+        name: requestString(requestData, 'name', '新技能'),
+        desc: requestString(requestData, 'desc', ''),
+        code: requestString(requestData, 'code', ''),
+        enabled: requestBoolean(requestData, 'enabled', true),
+        createdAt: new Date().toISOString()
       }
       mockSkills.push(newSkill)
       return ok(newSkill)
     } else if (method === 'PUT') {
-      // PUT /skills/:id - 更新技能
       const updateMatch = url.match(/\/skills\/([^\/]+)/)
       if (updateMatch) {
         const index = mockSkills.findIndex(s => s.id === updateMatch[1])
@@ -244,78 +267,36 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
           mockSkills[index] = { ...mockSkills[index], ...requestData }
           return ok(mockSkills[index])
         }
-        return { code: 404, message: '技能不存在', data: null }
       }
     } else if (method === 'DELETE') {
-      // DELETE /skills/:id - 删除技能
       const deleteMatch = url.match(/\/skills\/([^\/]+)/)
       if (deleteMatch) {
         const index = mockSkills.findIndex(s => s.id === deleteMatch[1])
         if (index > -1) {
-          // 内置技能不可删除
-          if (mockSkills[index].scope === 'builtin') {
-            return { code: 403, message: '内置技能不可删除', data: null }
-          }
           mockSkills.splice(index, 1)
           return ok({ success: true })
         }
-        return { code: 404, message: '技能不存在', data: null }
       }
-    }
-  } else if (url.includes('/skills/') && url.includes('/duplicate') && method === 'POST') {
-    // POST /skills/:id/duplicate - 复制技能
-    const duplicateMatch = url.match(/\/skills\/([^\/]+)\/duplicate/)
-    if (duplicateMatch) {
-      const originalSkill = mockSkills.find(s => s.id === duplicateMatch[1])
-      if (originalSkill) {
-        const newSkill: Skill = {
-          ...originalSkill,
-          id: 'skill' + Date.now(),
-          name: originalSkill.name + ' (副本)',
-          scope: 'custom',
-          ver: '1.0.0',
-          used: 0
-        }
-        mockSkills.unshift(newSkill)
-        return ok(newSkill)
-      }
-      return { code: 404, message: '技能不存在', data: null }
     }
   }
 
   // ========== MCP 相关 ==========
-  if (url.includes('/mcps') && !url.includes('/test')) {
+  if (url.includes('/mcps')) {
     if (method === 'GET') {
-      // GET /mcps - 获取列表
-      if (url.match(/^\/mcps$/) || url.match(/^\/mcps\?/)) {
-        return ok(mockMcps)
-      }
-      // GET /mcps/:id - 获取详情
-      const detailMatch = url.match(/\/mcps\/([^\/]+)/)
-      if (detailMatch && !url.includes('/test')) {
-        const mcp = mockMcps.find(m => m.id === detailMatch[1])
-        if (mcp) {
-          return ok(mcp)
-        }
-        return { code: 404, message: 'MCP 服务不存在', data: null }
-      }
+      return ok(mockMcps)
     } else if (method === 'POST') {
-      // POST /mcps - 创建 MCP 服务
       const newMcp: Mcp = {
         id: 'mcp' + Date.now(),
-        name: requestString(requestData, 'name'),
-        tp: requestString(requestData, 'tp', 'stdio') as Mcp['tp'],
-        cmd: requestString(requestData, 'cmd'),
-        status: 'off',
-        toolCount: 0,
-        env: requestList<Mcp['env'][number]>(requestData, 'env'),
-        timeout: requestNumber(requestData, 'timeout', 30),
+        name: requestString(requestData, 'name', '新 MCP'),
+        desc: requestString(requestData, 'desc', ''),
+        type: requestString(requestData, 'type', 'sse'),
+        url: requestString(requestData, 'url', ''),
+        enabled: requestBoolean(requestData, 'enabled', true),
         createdAt: new Date().toISOString()
       }
       mockMcps.push(newMcp)
       return ok(newMcp)
     } else if (method === 'PUT') {
-      // PUT /mcps/:id - 更新 MCP 服务
       const updateMatch = url.match(/\/mcps\/([^\/]+)/)
       if (updateMatch) {
         const index = mockMcps.findIndex(m => m.id === updateMatch[1])
@@ -323,10 +304,8 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
           mockMcps[index] = { ...mockMcps[index], ...requestData }
           return ok(mockMcps[index])
         }
-        return { code: 404, message: 'MCP 服务不存在', data: null }
       }
     } else if (method === 'DELETE') {
-      // DELETE /mcps/:id - 删除 MCP 服务
       const deleteMatch = url.match(/\/mcps\/([^\/]+)/)
       if (deleteMatch) {
         const index = mockMcps.findIndex(m => m.id === deleteMatch[1])
@@ -334,19 +313,115 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
           mockMcps.splice(index, 1)
           return ok({ success: true })
         }
-        return { code: 404, message: 'MCP 服务不存在', data: null }
       }
-    }
-  } else if (url.includes('/mcps/') && url.includes('/test') && method === 'POST') {
-    // POST /mcps/:id/test - 测试 MCP 服务
-    const testMatch = url.match(/\/mcps\/([^\/]+)\/test/)
-    if (testMatch) {
-      const mcpId = testMatch[1]
-      const result = createMcpTestResult(mcpId)
-      return ok(result)
     }
   }
 
+  // ========== 设置相关 ==========
+  if (url.includes('/settings/models')) {
+    if (method === 'GET') {
+      // 获取所有模型，按 group 过滤
+      const groupMatch = url.match(/group=(\w+)/)
+      if (groupMatch) {
+        const group = groupMatch[1]
+        const models = mockModels[group as keyof typeof mockModels] || []
+        return ok(models)
+      }
+      // 返回所有模型
+      return ok(mockModels)
+    }
+  }
+
+  // ========== 智能体相关 ==========
+  if (url.includes('/agents')) {
+    if (method === 'GET') {
+      // GET /agents - 获取列表
+      if (url.match(/^\/agents$/) || url.match(/^\/agents\?/)) {
+        return ok(mockAgents)
+      }
+      // GET /agents/:id - 获取详情
+      const detailMatch = url.match(/\/agents\/([^\/]+)/)
+      if (detailMatch) {
+        const agent = mockAgents.find(a => a.id === detailMatch[1])
+        if (agent) {
+          return ok(agent)
+        }
+        return { code: 404, message: '智能体不存在', data: null }
+      }
+    } else if (method === 'POST') {
+      // POST /agents - 创建智能体
+      const newAgent = {
+        id: 'agent' + Date.now(),
+        name: requestString(requestData, 'name', '新智能体'),
+        desc: requestString(requestData, 'desc', ''),
+        model: requestString(requestData, 'model', 'gpt-4o'),
+        prompt: requestString(requestData, 'prompt', '你是一个智能助手'),
+        temp: requestNumber(requestData, 'temp', 0.7),
+        maxtok: requestString(requestData, 'maxtok', '2048'),
+        tools: requestList<string>(requestData, 'tools'),
+        docs: requestList<string>(requestData, 'docs'),
+        wfs: requestList<string>(requestData, 'wfs'),
+        mcps: requestList<string>(requestData, 'mcps'),
+        skills: requestList<string>(requestData, 'skills'),
+        enabled: requestBoolean(requestData, 'enabled', true),
+        createdAt: new Date().toISOString(),
+        lastActive: new Date().toISOString()
+      }
+      mockAgents.push(newAgent)
+      return ok(newAgent)
+    } else if (method === 'PUT') {
+      // PUT /agents/:id - 更新智能体
+      const updateMatch = url.match(/\/agents\/([^\/]+)/)
+      if (updateMatch) {
+        const index = mockAgents.findIndex(a => a.id === updateMatch[1])
+        if (index > -1) {
+          mockAgents[index] = { ...mockAgents[index], ...requestData }
+          return ok(mockAgents[index])
+        }
+        return { code: 404, message: '智能体不存在', data: null }
+      }
+    } else if (method === 'DELETE') {
+      // DELETE /agents/:id - 删除智能体
+      const deleteMatch = url.match(/\/agents\/([^\/]+)/)
+      if (deleteMatch) {
+        const index = mockAgents.findIndex(a => a.id === deleteMatch[1])
+        if (index > -1) {
+          mockAgents.splice(index, 1)
+          return ok({ success: true })
+        }
+        return { code: 404, message: '智能体不存在', data: null }
+      }
+    }
+  }
+
+  // ========== 待办相关 ==========
+  if (url.includes('/todos')) {
+    if (method === 'GET') {
+      // GET /todos - 获取列表
+      return ok(mockTodos)
+    } else if (method === 'POST') {
+      // POST /todos/:id/submit - 提交待办
+      const submitMatch = url.match(/\/todos\/([^\/]+)\/submit/)
+      if (submitMatch) {
+        const result = submitMockTodo(submitMatch[1], requestData)
+        if (result) {
+          return ok(result)
+        }
+        return { code: 404, message: '待办不存在', data: null }
+      }
+    } else if (method === 'PUT') {
+      // PUT /todos/:id - 更新待办
+      const updateMatch = url.match(/\/todos\/([^\/]+)/)
+      if (updateMatch) {
+        const todo = mockTodos.find(t => t.id === updateMatch[1])
+        if (todo) {
+          Object.assign(todo, requestData)
+          return ok(todo)
+        }
+        return { code: 404, message: '待办不存在', data: null }
+      }
+    }
+  }
   return null
 }
 

@@ -1,6 +1,6 @@
 """executions 路由：执行历史 + SSE 流 + 调试控制。
 
-stream 端点订阅 SSE bus 实时推送工作流执行进度。
+stream 端点订阅 PostgreSQL SSE bus 实时推送工作流执行进度。
 cancel / resume / debug 端点操作执行记录状态。
 """
 import asyncio
@@ -9,12 +9,11 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
-from arq import create_pool
-from app.config import settings
 from app.api.deps import get_current_user
 from app.api.response import ok
 from app.db.session import async_session
-from app.core.engine.sse_bus import subscribe
+from app.core.engine.sse_bus_pg import subscribe
+from app.core.engine.pg_queue import PGJobQueue
 from app.exceptions import BizException, ErrorCode
 from app.models.workflow import Workflow, WorkflowExecution
 from app.schemas.workflow import map_exec_status, map_exec_trigger
@@ -58,7 +57,7 @@ async def list_(
 
 @router.post("/{eid}/cancel")
 async def cancel(eid: str, me=Depends(get_current_user)):
-    """取消执行：仅更新 DB status，worker astream 循环检测到后 break。"""
+    """取消执行：更新 DB status 和 pg_queue，worker 检测到后 break。"""
     from datetime import datetime
 
     async with async_session() as s:
@@ -69,18 +68,21 @@ async def cancel(eid: str, me=Depends(get_current_user)):
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
         if ex.status in ("completed", "failed", "cancelled"):
             raise BizException(ErrorCode.BAD_REQUEST, f"执行已{ex.status}，无法取消")
+        
+        # 更新 workflow_executions 状态
         ex.status = "cancelled"
         ex.completed_at = datetime.now()
         await s.commit()
+        
+        # 同时更新 pg_queue
+        await PGJobQueue.cancel(s, eid)
 
     return ok({"success": True})
 
 
 @router.post("/{eid}/resume")
 async def resume(eid: str, me=Depends(get_current_user)):
-    """恢复暂停的执行：入队 ARQ task，worker 从 checkpoint 断点恢复。"""
-    from datetime import datetime
-
+    """恢复暂停的执行：使用 pg_queue._requeue_paused，Worker 自动检测 checkpoint 并断点恢复。"""
     async with async_session() as s:
         ex = (
             await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
@@ -89,12 +91,9 @@ async def resume(eid: str, me=Depends(get_current_user)):
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
         if ex.status != "paused":
             raise BizException(ErrorCode.BAD_REQUEST, "仅暂停状态的执行可恢复")
-        ex.status = "running"
-        await s.commit()
-
-    # 入队 ARQ task — worker 发现 checkpoint 存在 → astream(None) 断点恢复
-    pool = await create_pool(settings.redis_url)
-    await pool.enqueue_job("execute_workflow_task", execution_id=eid)
+        
+        # 使用 PostgreSQL 队列重新入队暂停的任务
+        await PGJobQueue._requeue_paused(s, eid)
 
     return ok({"success": True})
 
@@ -190,7 +189,7 @@ async def node_detail(eid: str, node_id: str, me=Depends(get_current_user)):
 
 @router.get("/{eid}/stream")
 async def stream(eid: str, me=Depends(get_current_user)):
-    """SSE 执行事件流：订阅 Redis Stream 实时推送执行进度。"""
+    """SSE 执行事件流：订阅 PostgreSQL execution_events 表实时推送执行进度。"""
 
     async with async_session() as s:
         ex = (
@@ -209,8 +208,8 @@ async def stream(eid: str, me=Depends(get_current_user)):
                     {"status": ex.status, "duration_ms": ex.duration_ms},
                 )
                 return
-            # 消费 Redis Stream 事件（XRANGE 历史 + XREAD 实时）
-            async for event in subscribe(eid):
+            # 消费 PostgreSQL 事件（sse_bus_pg.subscribe 轮询实现）
+            async for event in subscribe(eid, poll_interval=0.5):
                 yield event
         except asyncio.CancelledError:
             pass  # 客户端断开

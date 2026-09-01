@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed } from 'vue'
 import type { ChatMessage } from '@/types/chat'
 import PhaseIndicator from './PhaseIndicator.vue'
@@ -19,6 +19,11 @@ const emit = defineEmits<{
 const isUser = computed(() => props.data.role === 'user')
 const isStreaming = computed(() => props.data.phase && props.data.phase !== 'idle' && !props.data.trace)
 const renderedContent = computed(() => renderMarkdown(props.data.content || ''))
+
+// 判断是否显示"正在思考..." - 只在助手消息、流式状态且内容为空时显示
+const showThinking = computed(() => {
+  return !isUser.value && isStreaming.value && !props.data.content
+})
 </script>
 
 <template>
@@ -38,7 +43,13 @@ const renderedContent = computed(() => renderMarkdown(props.data.content || ''))
       />
       
       <!-- 消息内容 -->
-      <div class="content-text" v-html="renderedContent || '正在思考...'"></div>
+      <div class="content-text" v-html="renderedContent"></div>
+      
+      <!-- 正在思考提示（仅在流式状态且内容为空时显示） -->
+      <div v-if="showThinking" class="thinking-text">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        正在思考...
+      </div>
       
       <!-- 引用列表 -->
       <div v-if="data.references && data.references.length > 0" class="references">
@@ -137,6 +148,15 @@ const renderedContent = computed(() => renderMarkdown(props.data.content || ''))
       background: #f5f7fa;
     }
   }
+}
+
+.thinking-text {
+  font-size: 14px;
+  color: #909399;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
 }
 
 .references {

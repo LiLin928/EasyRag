@@ -53,6 +53,10 @@ export interface InputVariableMapping {
   source?: string
   /** 默认值 */
   default?: any
+  /** 是否必填 */
+  required?: boolean
+  /** 参数类型 */
+  type?: string
 }
 
 /** 输出变量定义 — 声明本节点产出 */
@@ -159,6 +163,38 @@ export interface Execution {
   nodeProgress: string // e.g. "4/7"
 }
 
+// ========== 执行详情 ==========
+
+/** 单个节点的执行详情 */
+export interface NodeExecutionDetail {
+  nodeId: string
+  nodeName: string
+  nodeType: NodeType
+  status: ExecStatus
+  startTime: string
+  endTime?: string
+  duration?: number
+  input?: any
+  output?: any
+  error?: string
+}
+
+/** 执行历史详情 */
+export interface ExecutionDetail {
+  id: string
+  workflowId: string
+  workflowName: string
+  status: ExecStatus
+  trigger: ExecTrigger
+  startTime: string
+  endTime?: string
+  duration?: number
+  nodeProgress: string
+  inputs: Record<string, any>  // 开始节点输入参数
+  outputs: Record<string, any> // 最终结果
+  nodes: NodeExecutionDetail[] // 每个节点的执行详情
+}
+
 // ========== 执行状态（编辑器用）==========
 
 export type NodeExecStatus = 'idle' | 'running' | 'success' | 'error' | 'wait'
@@ -240,4 +276,3 @@ export type WfExecEvent =
   | ExecResumedEvent
   | ExecCompleteEvent
   | ExecErrorEvent
-

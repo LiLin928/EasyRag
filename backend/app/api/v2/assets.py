@@ -4,15 +4,15 @@ import uuid
 from json import JSONDecodeError
 from typing import Literal
 
-from arq import create_pool
-from arq.connections import RedisSettings
+from app.core.engine.pg_queue import PGJobQueue
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import get_current_user
 from app.api.response import ok
-from app.config import settings
+
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.document import Document, ParseTask
@@ -111,8 +111,8 @@ async def upload(
 
     storage = get_storage()
     await storage.put(key, data)
-    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    await pool.enqueue_job("parse_document_task", doc_id)
+    
+    await PGJobQueue.enqueue_task('parse_document', {"doc_id": doc_id})
     return ok({"task_id": task_id, "doc_id": doc_id})
 
 
@@ -226,7 +226,7 @@ async def list_chunks(
 
 @router.post("/chunks/reembed")
 async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
-    kb_uuid = _validate_uuid(body.kb_id, "知识库 ID")
+    kb_uuid = _validate_uuid( "知识库 ID")
     for document_id in body.document_ids:
         _validate_uuid(document_id, "文档 ID")
     for chunk_id in body.chunk_ids:
@@ -244,12 +244,12 @@ async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
     if not kb:
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该知识库")
 
-    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    await pool.enqueue_job(
-        "reembed_chunks_task",
-        body.kb_id,
-        body.document_ids,
-        body.chunk_ids,
+    
+    
+        
+        
+        
+        
     )
     return ok({"queued": True})
 
@@ -278,3 +278,5 @@ async def batch_chunk_status(body: BatchStatus, me=Depends(get_current_user)):
         body.ids, me.id, "chunk", body.enabled
     )
     return ok({"updated": updated})
+
+

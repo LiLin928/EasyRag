@@ -201,3 +201,13 @@ UNION ALL
 SELECT 
     'execution_events' AS table_name,
     (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'execution_events') AS column_count;
+
+
+-- Task type extension for non-workflow tasks
+ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS task_type VARCHAR(50) DEFAULT 'workflow';
+ALTER TABLE job_queue ADD COLUMN IF NOT EXISTS task_payload JSONB DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS idx_job_queue_task_type ON job_queue(task_type, status, priority DESC);
+
+COMMENT ON COLUMN job_queue.task_type IS 'Task type: workflow, parse_document, reembed_chunks, retrieval_test';
+COMMENT ON COLUMN job_queue.task_payload IS 'Task-specific payload as JSON';

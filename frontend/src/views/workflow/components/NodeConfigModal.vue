@@ -12,6 +12,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+  (e: 'close'): void
   (e: 'update:visible', value: boolean): void
   (e: 'save', node: WfNode): void
 }>()
@@ -162,6 +163,7 @@ function removeEndOutput(index: number) {
 }
 
 function handleClose() {
+  emit('close')
   emit('update:visible', false)
 }
 
