@@ -52,7 +52,11 @@ def _out(t: Tool) -> dict:
 
 @router.get("")
 async def list_(me=Depends(get_current_user)):
-    """列出所有工具。"""
+    """列出所有工具。
+
+    返回所有工具列表，按创建时间倒序排列。
+    包含工具的基本信息和解密后的认证配置。
+    """
     async with async_session() as s:
         rows = (await s.execute(select(Tool).order_by(Tool.created_at.desc()))).scalars().all()
     return ok([_out(t) for t in rows])
@@ -60,7 +64,12 @@ async def list_(me=Depends(get_current_user)):
 
 @router.post("")
 async def create(body: ToolCreate, me=Depends(require_roles("admin"))):
-    """新建工具。"""
+    """创建新工具。
+
+    创建一个新的工具配置，包含名称、类型、参数签名、认证信息等。
+    认证密钥会在保存前使用 Fernet 加密存储。
+    仅管理员有权限执行此操作。
+    """
     t = Tool(
         name=body.name,
         type=body.type,
@@ -80,7 +89,11 @@ async def create(body: ToolCreate, me=Depends(require_roles("admin"))):
 
 @router.get("/{tid}")
 async def detail(tid: str, me=Depends(get_current_user)):
-    """获取工具详情。"""
+    """获取工具详情。
+
+    根据工具 ID 获取单个工具的完整信息。
+    返回解密后的认证配置供前端使用。
+    """
     async with async_session() as s:
         t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()
     if not t:
@@ -90,7 +103,12 @@ async def detail(tid: str, me=Depends(get_current_user)):
 
 @router.put("/{tid}")
 async def update(tid: str, body: ToolUpdate, me=Depends(require_roles("admin"))):
-    """更新工具。"""
+    """更新工具配置。
+
+    更新指定工具的名称、类型、参数签名、认证信息等。
+    认证密钥更新后会使用 Fernet 加密存储。
+    仅管理员有权限执行此操作。
+    """
     async with async_session() as s:
         t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()
         if not t:
@@ -115,7 +133,11 @@ async def update(tid: str, body: ToolUpdate, me=Depends(require_roles("admin")))
 
 @router.delete("/{tid}")
 async def delete(tid: str, me=Depends(require_roles("admin"))):
-    """删除工具。"""
+    """删除工具。
+
+    永久删除指定的工具配置。
+    仅管理员有权限执行此操作。
+    """
     async with async_session() as s:
         t = (await s.execute(select(Tool).where(Tool.id == tid))).scalar_one_or_none()
         if not t:
@@ -127,6 +149,10 @@ async def delete(tid: str, me=Depends(require_roles("admin"))):
 
 @router.post("/{tid}/test")
 async def test(tid: str, body: dict = Body(default={}), me=Depends(get_current_user)):
-    """测试工具执行（HTTP / 内置 / Python）。"""
+    """测试工具执行。
+
+    根据工具类型执行测试：HTTP 工具发送请求、内置工具调用本地函数、Python 工具在沙箱中执行。
+    用于验证工具配置是否正确，返回执行结果或错误信息。
+    """
     from app.services.tool_service import execute_tool
     return ok(await execute_tool(tid, body.get("args", {})))
