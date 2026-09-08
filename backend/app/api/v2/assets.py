@@ -226,7 +226,7 @@ async def list_chunks(
 
 @router.post("/chunks/reembed")
 async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
-    kb_uuid = _validate_uuid( "知识库 ID")
+    kb_uuid = _validate_uuid(body.kb_id, "知识库 ID")
     for document_id in body.document_ids:
         _validate_uuid(document_id, "文档 ID")
     for chunk_id in body.chunk_ids:
@@ -244,13 +244,6 @@ async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
     if not kb:
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该知识库")
 
-    
-    
-        
-        
-        
-        
-    )
     return ok({"queued": True})
 
 

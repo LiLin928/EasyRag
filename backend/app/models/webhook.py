@@ -1,4 +1,4 @@
-\"\"\"Webhook触发器模型。\"\"\"
+"""Webhook触发器模型。"""
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -11,16 +11,16 @@ from app.models.base import Base, TimestampMixin, UUIDPk
 
 
 class Webhook(Base, UUIDPk, TimestampMixin):
-    \"\"\"Webhook触发器表。\"\"\"
-    __tablename__ = \"webhooks\"
+    """Webhook触发器表。"""
+    __tablename__ = "webhooks"
     
     workflow_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(\"workflows.id\", ondelete=\"CASCADE\"),
+        ForeignKey("workflows.id", ondelete="CASCADE"),
         index=True,
         nullable=False
     )
     user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(\"users.id\"),
+        ForeignKey("users.id"),
         index=True,
         nullable=False
     )
@@ -31,7 +31,7 @@ class Webhook(Base, UUIDPk, TimestampMixin):
     
     # 触发条件过滤器
     filters: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    # 例如: {\"event_type\": \"document.created\", \"source\": \"api\"}
+    # 例如: {"event_type": "document.created", "source": "api"}
     
     last_triggered_at: Mapped[Optional[datetime]] = mapped_column(nullable=True)
     trigger_count: Mapped[int] = mapped_column(default=0)
@@ -41,16 +41,16 @@ class Webhook(Base, UUIDPk, TimestampMixin):
 
 
 class WebhookTriggerLog(Base, UUIDPk):
-    \"\"\"Webhook触发日志表。\"\"\"
-    __tablename__ = \"webhook_trigger_logs\"
+    """Webhook触发日志表。"""
+    __tablename__ = "webhook_trigger_logs"
     
     webhook_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey(\"webhooks.id\", ondelete=\"CASCADE\"),
+        ForeignKey("webhooks.id", ondelete="CASCADE"),
         index=True,
         nullable=False
     )
     workflow_execution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        ForeignKey(\"workflow_executions.id\", ondelete=\"SET NULL\"),
+        ForeignKey("workflow_executions.id", ondelete="SET NULL"),
         nullable=True
     )
     
@@ -61,12 +61,12 @@ class WebhookTriggerLog(Base, UUIDPk):
     
     # 验证结果
     signature_valid: Mapped[bool] = mapped_column(default=False)
-    signature_version: Mapped[str] = mapped_column(String(10), default=\"v1\")
+    signature_version: Mapped[str] = mapped_column(String(10), default="v1")
     
     # 执行结果
     status: Mapped[str] = mapped_column(
         String(20),
-        default=\"pending\"
+        default="pending"
     )  # pending / running / completed / failed / filtered
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
