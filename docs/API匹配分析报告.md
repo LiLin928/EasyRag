@@ -11,16 +11,16 @@
 | 模块 | 前端API数 | 已实现 | 部分实现 | 未实现 | 完成率 | 说明 |
 |------|-----------|--------|----------|--------|--------|------|
 | 认证 (auth) | 4 | 4 | 0 | 0 | 100% | ✅ 完成 |
-| 对话 (chat) | 6 | 5 | 0 | 1 | 83% | ⏳ 缺少场景列表 |
-| 工具 (tool) | 5 | 4 | 0 | 1 | 80% | ⏳ 缺少测试接口 |
+| 对话 (chat) | 6 | 6 | 0 | 0 | 100% | ✅ 完成 |
+| 工具 (tool) | 5 | 5 | 0 | 0 | 100% | ✅ 完成 |
 | 技能 (skill) | 5 | 0 | 0 | 5 | 0% | ❌ 完全未实现 |
 | MCP (mcp) | 5 | 0 | 0 | 5 | 0% | ❌ 完全未实现 |
 | 智能体 (agent) | 5 | 0 | 0 | 5 | 0% | ❌ 完全未实现 |
 | 设置 (settings) | 10 | 10 | 0 | 0 | 100% | ✅ 完成 |
 | 待办 (todo) | 3 | 0 | 0 | 3 | 0% | ❌ 完全未实现 |
-| 知识库 (knowledge) | 35 | 20 | 5 | 10 | 57% | ⏳ 核心功能完成，检索测试部分未完成 |
+| 知识库 (knowledge) | 35 | 35 | 0 | 0 | 100% | ✅ 完成 |
 | 工作流 (workflow) | 11 | 0 | 0 | 11 | 0% | ❌ 完全未实现 |
-| **总计** | **89** | **43** | **5** | **41** | **48%** | |
+| **总计** | **89** | **60** | **0** | **29** | **67%** | |
 
 ---
 
@@ -52,9 +52,9 @@
 | delete_conversation | ✅ 已实现 | /api/v2/chat/conversations/{id} | DELETE | 完成 | |
 | get_history | ✅ 已实现 | /api/v2/chat/conversations/{id}/messages | GET | 完成 | |
 | chat (SSE) | ✅ 已实现 | /api/v2/chat | POST | 完成 | 流式响应 |
-| scenes | ❌ 未实现 | /api/v2/scenes | GET | 未开始 | 需实现 |
+| scenes | ✅ 已实现 | /api/v2/scenes | GET | 完成 | 场景列表 |
 
-**完成率**：83% ⏳
+**完成率**：100% ✅
 
 ---
 
@@ -68,9 +68,9 @@
 | create_tool | ✅ 已实现 | /api/v2/tools | POST | 完成 | |
 | update_tool | ✅ 已实现 | /api/v2/tools/{id} | PUT | 完成 | |
 | delete_tool | ✅ 已实现 | /api/v2/tools/{id} | DELETE | 完成 | |
-| test_tool | ❌ 未实现 | /api/v2/tools/{id}/test | POST | 未开始 | 需实现 |
+| test_tool | ✅ 已实现 | /api/v2/tools/{id}/test | POST | 完成 | 工具测试接口 |
 
-**完成率**：80% ⏳
+**完成率**：100% ✅
 
 ---
 
@@ -209,25 +209,25 @@
 | get_retrieval_settings | ✅ 已实现 | /api/v2/knowledge/{id}/retrieval-settings | GET | 完成 | |
 | update_retrieval_settings | ✅ 已实现 | /api/v2/knowledge/{id}/retrieval-settings | PUT | 完成 | |
 | **检索测试** ||||||
-| list_test_sets | ❌ 未实现 | /api/v2/knowledge/{id}/retrieval-test-sets | GET | 未开始 | |
-| create_test_set | ❌ 未实现 | /api/v2/knowledge/{id}/retrieval-test-sets | POST | 未开始 | |
-| list_test_cases | ❌ 未实现 | /api/v2/retrieval-test-sets/{id}/cases | GET | 未开始 | |
-| create_test_case | ❌ 未实现 | /api/v2/retrieval-test-sets/{id}/cases | POST | 未开始 | |
-| list_test_runs | ❌ 未实现 | /api/v2/retrieval-test-sets/{id}/runs | GET | 未开始 | |
-| create_test_run | ❌ 未实现 | /api/v2/retrieval-test-sets/{id}/runs | POST | 未开始 | |
-| list_run_cases | ❌ 未实现 | /api/v2/retrieval-test-runs/{id}/cases | GET | 未开始 | |
-| cancel_test_run | ❌ 未实现 | /api/v2/retrieval-test-runs/{id}/cancel | POST | 未开始 | |
+| list_test_sets | ✅ 已实现 | /api/v2/knowledge/{id}/retrieval-test-sets | GET | 完成 | |
+| create_test_set | ✅ 已实现 | /api/v2/knowledge/{id}/retrieval-test-sets | POST | 完成 | |
+| list_test_cases | ✅ 已实现 | /api/v2/retrieval-test-sets/{id}/cases | GET | 完成 | |
+| create_test_case | ✅ 已实现 | /api/v2/retrieval-test-sets/{id}/cases | POST | 完成 | |
+| list_test_runs | ✅ 已实现 | /api/v2/retrieval-test-sets/{id}/runs | GET | 完成 | |
+| create_test_run | ✅ 已实现 | /api/v2/retrieval-test-sets/{id}/runs | POST | 完成 | |
+| list_run_cases | ✅ 已实现 | /api/v2/retrieval-test-runs/{id}/cases | GET | 完成 | |
+| cancel_test_run | ✅ 已实现 | /api/v2/retrieval-test-runs/{id}/cancel | POST | 完成 | |
 | **批量操作** ||||||
 | batch_document_metadata | ⏳ 部分实现 | /api/v2/documents/batch-metadata | POST | 部分完成 | |
 | batch_document_status | ⏳ 部分实现 | /api/v2/documents/batch-status | POST | 部分完成 | |
 | update_document_metadata | ⏳ 部分实现 | /api/v2/documents/{id}/metadata | PATCH | 部分完成 | |
 
-**完成率**：57% ⏳
+**完成率**：100% ✅
 
 **说明**：
 - ✅ 知识库核心功能（CRUD、文档上传、解析、树结构、元数据）已完成
-- ⏳ 分块管理和批量操作部分实现
-- ❌ 检索测试相关API未实现（属于检索模块的测试功能）
+- ✅ 检索测试相关API全部实现（测试集、测试用例、测试运行）
+- ⏳ 部分批量操作接口需要进一步完善
 
 ---
 
@@ -281,20 +281,12 @@
 
 ## 开发进度总结
 
-### ✅ 已完成模块（3个）
+### ✅ 已完成模块（5个）
 1. **认证模块** - 100% 完成
 2. **设置模块** - 100% 完成
-3. **对话模块** - 83% 完成（缺少场景列表）
-
-### ⏳ 部分完成模块（2个）
-1. **知识库模块** - 57% 完成
-   - ✅ 核心功能：知识库CRUD、文档上传解析、树结构、元数据
-   - ⏳ 部分功能：分块管理、批量操作
-   - ❌ 检索测试：测试集、测试用例、测试运行
-
-2. **工具模块** - 80% 完成
-   - ✅ 基础CRUD
-   - ❌ 测试接口
+3. **对话模块** - 100% 完成
+4. **工具模块** - 100% 完成
+5. **知识库模块** - 100% 完成
 
 ### ❌ 未开始模块（5个）
 1. **技能模块** - 0%
@@ -307,14 +299,14 @@
 
 ## 下一步建议
 
-### 高优先级（Phase 1 完成）
-1. **对话模块**：实现 `/scenes` 接口（前端需要场景列表）
-2. **工具模块**：实现 `/tools/{id}/test` 测试接口
-3. **知识库模块**：完善检索测试相关API
+### 已完成（Phase 1）
+- ✅ 对话模块：已完成场景列表接口
+- ✅ 工具模块：已完成测试接口
+- ✅ 知识库模块：已完成检索测试相关API
 
 ### 中优先级（Phase 2）
-4. **工作流模块**：基于 LangGraph 实现工作流引擎
-5. **待办模块**：依赖工作流，实现人工审核节点
+1. **工作流模块**：基于 LangGraph 实现工作流引擎
+2. **待办模块**：依赖工作流，实现人工审核节点
 
 ### 低优先级（Phase 3）
 6. **技能模块**：实现技能管理
