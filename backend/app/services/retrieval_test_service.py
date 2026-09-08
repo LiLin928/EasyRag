@@ -251,6 +251,16 @@ def _terminal_message(exc: Exception, model_label: str) -> str:
 
 
 async def list_test_sets(kb_id, user_id, include_archived=False):
+    """列出知识库的检索测试集。
+
+    Args:
+        kb_id: 知识库 ID
+        user_id: 用户 ID
+        include_archived: 是否包含已归档的测试集
+
+    Returns:
+        tuple[list[RetrievalTestSet], int]: 测试集列表和总数
+    """
     kb_uuid = _uuid(kb_id, "knowledge base ID")
     user_uuid = _uuid(user_id, "user ID")
     filters = [
@@ -289,11 +299,37 @@ async def list_test_sets(kb_id, user_id, include_archived=False):
 
 
 async def get_test_set(set_id, user_id):
+    """获取检索测试集详情。
+
+    Args:
+        set_id: 测试集 ID
+        user_id: 用户 ID
+
+    Returns:
+        RetrievalTestSet: 测试集对象
+
+    Raises:
+        BizException: 测试集不存在或无权限访问
+    """
     async with async_session() as session:
         return await _set_from(session, set_id, user_id)
 
 
 async def create_test_set(kb_id, user_id, name, description=None):
+    """创建检索测试集。
+
+    Args:
+        kb_id: 知识库 ID
+        user_id: 用户 ID
+        name: 测试集名称
+        description: 测试集描述
+
+    Returns:
+        RetrievalTestSet: 创建的测试集对象
+
+    Raises:
+        BizException: 知识库不存在或无权限访问
+    """
     kb_uuid = _uuid(kb_id, "knowledge base ID")
     user_uuid = _uuid(user_id, "user ID")
     clean_name = _validate_name(name)
@@ -319,6 +355,19 @@ async def create_test_set(kb_id, user_id, name, description=None):
 
 
 async def update_test_set(set_id, user_id, **changes):
+    """更新检索测试集。
+
+    Args:
+        set_id: 测试集 ID
+        user_id: 用户 ID
+        **changes: 要更新的字段（name、description、archived）
+
+    Returns:
+        RetrievalTestSet: 更新后的测试集对象
+
+    Raises:
+        BizException: 测试集不存在或无权限访问
+    """
     _unknown_fields(set(changes), _SET_FIELDS, "test set field")
     async with async_session() as session:
         test_set = await _set_from(session, set_id, user_id, for_update=True)
@@ -336,6 +385,15 @@ async def update_test_set(set_id, user_id, **changes):
 
 
 async def delete_test_set(set_id, user_id):
+    """删除检索测试集。
+
+    Args:
+        set_id: 测试集 ID
+        user_id: 用户 ID
+
+    Raises:
+        BizException: 测试集不存在或无权限访问
+    """
     async with async_session() as session:
         test_set = await _set_from(session, set_id, user_id, for_update=True)
         await session.delete(test_set)
@@ -343,6 +401,16 @@ async def delete_test_set(set_id, user_id):
 
 
 async def list_cases(test_set_id, user_id, enabled: bool | None = None):
+    """列出测试集的测试用例。
+
+    Args:
+        test_set_id: 测试集 ID
+        user_id: 用户 ID
+        enabled: 是否只列出启用的测试用例（None 表示全部）
+
+    Returns:
+        tuple[list[RetrievalTestCase], int]: 测试用例列表和总数
+    """
     set_uuid = _uuid(test_set_id, "test set ID")
     user_uuid = _uuid(user_id, "user ID")
     filters = [
