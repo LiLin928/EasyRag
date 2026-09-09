@@ -50,7 +50,6 @@ class Settings(BaseSettings):
 
     # 对象存储（本地 FS → MinIO）
     storage_type: str = "local"        # local | minio
-    \
     # MinIO 配置
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"
@@ -58,6 +57,13 @@ class Settings(BaseSettings):
     minio_bucket: str = "easyrag"
     minio_secure: bool = False
     minio_public_url: str | None = None
+
+    # OpenSandbox 配置（代码执行沙箱）
+    opensandbox_url: str = "http://192.168.137.13:8090"
+    opensandbox_api_key: str | None = None
+    opensandbox_timeout: int = 30
+    opensandbox_memory_mb: int = 512
+    opensandbox_cpu: float = 1.0
 
 
 settings = Settings()
