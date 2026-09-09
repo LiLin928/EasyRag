@@ -5,7 +5,7 @@ import TagsView from './components/TagsView.vue'
 </script>
 
 <template>
-  <el-container class="app-layout">
+  <el-container class="app-layout" direction="vertical">
     <!-- 顶栏 -->
     <AppNavbar />
     

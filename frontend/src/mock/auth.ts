@@ -1,4 +1,4 @@
-﻿// 登录模块 Mock 数据
+// 登录模块 Mock 数据
 import type { UserInfo } from '@/stores/auth'
 
 // Mock 用户
@@ -38,4 +38,11 @@ export const mockUserInfoResponse = {
   code: 0,
   message: 'success',
   data: mockUser
+}
+
+// Mock 登出响应
+export const mockLogoutResponse = {
+  code: 0,
+  message: 'success',
+  data: null
 }

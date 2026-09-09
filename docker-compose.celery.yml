@@ -1,0 +1,211 @@
+version: "3.8"
+
+services:
+  # Redis - 任务队列和事件总线
+  redis:
+    image: redis:7-alpine
+    container_name: easyrag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - easyrag-network
+
+  # PostgreSQL - 主数据库
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: easyrag-postgres
+    environment:
+      POSTGRES_USER: easyrag
+      POSTGRES_PASSWORD: easyrag
+      POSTGRES_DB: easyrag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U easyrag"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - easyrag-network
+
+  # MinIO - 对象存储（可选）
+  minio:
+    image: minio/minio:latest
+    container_name: easyrag-minio
+    environment:
+      MINIO_ROOT_USER: easyrag
+      MINIO_ROOT_PASSWORD: easyrag123456
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - easyrag-network
+
+  # FastAPI 主应用
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easyrag:easyrag@postgres:5432/easyrag
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - STORAGE_TYPE=minio
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=easyrag
+      - MINIO_SECRET_KEY=easyrag123456
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker - 默认队列
+  celery-worker-default:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-celery-default
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easyrag:easyrag@postgres:5432/easyrag
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: celery -A app.core.celery_app worker -Q default -l info -n default@%h
+
+  # Celery Worker - 文档解析队列
+  celery-worker-parse:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-celery-parse
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easyrag:easyrag@postgres:5432/easyrag
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: celery -A app.core.celery_app worker -Q parse -l info -n parse@%h --concurrency=2
+
+  # Celery Worker - 工作流队列
+  celery-worker-workflow:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-celery-workflow
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easyrag:easyrag@postgres:5432/easyrag
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: celery -A app.core.celery_app worker -Q workflow -l info -n workflow@%h --concurrency=4
+
+  # Celery Worker - Agent 队列
+  celery-worker-agent:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-celery-agent
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://easyrag:easyrag@postgres:5432/easyrag
+      - REDIS_URL=redis://redis:6379
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: celery -A app.core.celery_app worker -Q agent -l info -n agent@%h --concurrency=2
+
+  # Flower - Celery 监控
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easyrag-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    networks:
+      - easyrag-network
+    command: celery -A app.core.celery_app flower --port=5555 --broker_api=redis://redis:6379/0
+
+volumes:
+  redis-data:
+  postgres-data:
+  minio-data:
+
+networks:
+  easyrag-network:
+    driver: bridge

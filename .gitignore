@@ -91,3 +91,16 @@ docs/.doctrees/
 *.rar
 *.7z
 *.tar.gz
+
+# ========== Python (EasyRAG Backend) ==========
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# ========== Storage runtime data (上传文件本地存储) ==========
+backend/data/
+
+# ========== Temp test files ==========
+backend/e2e_test.md

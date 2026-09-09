@@ -1,12 +1,14 @@
 ﻿<script setup lang="ts">
 import { ref, watch, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useChatStore } from '@/stores/chat'
+import * as chatApi from '@/api/chat'
 import ChatMessage from './ChatMessage.vue'
+import type { ChatMessage as ChatMessageType } from '@/types/chat'
 
 const chatStore = useChatStore()
 const scrollRef = ref<HTMLElement | null>(null)
 
-// 监听消息变化，自动滚动到底部
 watch(
   () => chatStore.messages.length,
   () => {
@@ -16,7 +18,6 @@ watch(
   }
 )
 
-// 监听流式内容变化，自动滚动
 watch(
   () => chatStore.streamBuffer,
   () => {
@@ -32,8 +33,13 @@ function scrollToBottom() {
   }
 }
 
-function handleFeedback(_type: 'like' | 'dislike') {
-  // TODO: 发送反馈
+async function handleFeedback(msg: ChatMessageType, type: 'like' | 'dislike') {
+  try {
+    await chatApi.sendFeedback({ messageId: msg.id, type })
+    ElMessage.success(type === 'like' ? '已点赞' : '已点踩')
+  } catch (error) {
+    ElMessage.error('反馈失败')
+  }
 }
 </script>
 
@@ -44,7 +50,7 @@ function handleFeedback(_type: 'like' | 'dislike') {
         v-for="msg in chatStore.messages"
         :key="msg.id"
         :data="msg"
-        @feedback="handleFeedback"
+        @feedback="(type) => handleFeedback(msg, type)"
       />
       
       <el-empty
@@ -65,4 +71,3 @@ function handleFeedback(_type: 'like' | 'dislike') {
   min-height: 100%;
 }
 </style>
-

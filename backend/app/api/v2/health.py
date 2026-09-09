@@ -1,21 +1,72 @@
-"""健康检查路由模块。"""
-from fastapi import APIRouter, Depends
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+"""健康检查路由。"""
+from datetime import datetime
+from fastapi import APIRouter
+
 from app.api.response import ok
-from app.db.session import get_db
+from app.core.engine.pg_queue import PGJobQueue
+from app.db.session import async_session
+from app.exceptions import BizException, ErrorCode
+from sqlalchemy import text
 
-router = APIRouter(tags=["health"])
+router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/health")
-async def health(db: AsyncSession = Depends(get_db)):
-    """健康检查接口。
+@router.get("")
+async def health_check():
+    """基础健康检查。"""
+    return ok({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "EasyRAG"
+    })
 
-    执行 ``SELECT 1`` 探测数据库连通性，正常返回 status=ok，异常返回 degraded。
+
+@router.get("/workers")
+async def worker_health():
+    """Worker 健康状态。
+    
+    返回队列状态和运行中的 worker 列表。
+    """
+    async with async_session() as s:
+        pending = await PGJobQueue.count_pending(s)
+        running = await PGJobQueue.count_running(s)
+        workers = await PGJobQueue.list_workers(s)
+    
+    return ok({
+        "queue": {
+            "pending": pending,
+            "running": running,
+        },
+        "workers": [
+            {
+                "id": w["worker_id"],
+                "status": "active",
+                "last_heartbeat": w["last_active"].isoformat() if w["last_active"] else None
+            }
+            for w in workers
+        ],
+        "timestamp": datetime.now().isoformat()
+    })
+
+
+@router.get("/ready")
+async def readiness_check():
+    """就绪检查：数据库连接。
+    
+    用于 Kubernetes readiness probe。
     """
     try:
-        (await db.execute(text("SELECT 1"))).scalar()
-        return ok({"status": "ok", "db": "ok"})
+        async with async_session() as s:
+            await s.execute(text("SELECT 1"))
+        return ok({"status": "ready"})
     except Exception as e:
-        return ok({"status": "degraded", "db": str(e)})
+        raise BizException(ErrorCode.SERVICE_ERROR, f"Database not ready: {e}")
+
+
+@router.get("/live")
+async def liveness_check():
+    """存活检查。
+    
+    用于 Kubernetes liveness probe。
+    """
+    return ok({"status": "alive"})

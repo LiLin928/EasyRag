@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import * as wfApi from '@/api/workflow'
 import type { Workflow, Template, Execution, WfNode, WfEdge, ExecState } from '@/types/workflow'
+import { NODE_TYPES } from '@/types/workflow'
 
-// ========== ¹¤×÷Á÷ÁÐ±í Store ==========
+// ========== å·¥ä½œæµåˆ—è¡¨ Store ==========
 
 export const useWorkflowListStore = defineStore('workflowList', () => {
   const workflows = ref<Workflow[]>([])
@@ -13,7 +14,33 @@ export const useWorkflowListStore = defineStore('workflowList', () => {
   const loading = ref(false)
   const activeTab = ref<'list' | 'templates' | 'history'>('list')
 
-  // ========== ¼ÓÔØÊý¾Ý ==========
+  // ========== æœç´¢ ==========
+
+  const keyword = ref('')
+  const tplKeyword = ref('')
+
+  // æŒ‰å…³é”®è¯è¿‡æ»¤çš„æµç¨‹åˆ—è¡¨ï¼ˆåç§° / æè¿°ï¼‰
+  const filteredWorkflows = computed(() => {
+    if (!keyword.value.trim()) return workflows.value
+    const kw = keyword.value.toLowerCase()
+    return workflows.value.filter(w =>
+      w.name.toLowerCase().includes(kw) ||
+      (w.description || '').toLowerCase().includes(kw)
+    )
+  })
+
+  // æŒ‰å…³é”®è¯è¿‡æ»¤çš„æ¨¡æ¿åˆ—è¡¨ï¼ˆåç§° / æè¿° / æ ‡ç­¾ï¼‰
+  const filteredTemplates = computed(() => {
+    if (!tplKeyword.value.trim()) return templates.value
+    const kw = tplKeyword.value.toLowerCase()
+    return templates.value.filter(t =>
+      t.name.toLowerCase().includes(kw) ||
+      (t.description || '').toLowerCase().includes(kw) ||
+      t.tags.some(tag => tag.toLowerCase().includes(kw))
+    )
+  })
+
+  // ========== æ•°æ®åŠ è½½ ==========
   
   async function loadWorkflows() {
     loading.value = true
@@ -34,7 +61,7 @@ export const useWorkflowListStore = defineStore('workflowList', () => {
     history.value = data
   }
 
-  // ========== ²Ù×÷ ==========
+  // ========== æµç¨‹æ“ä½œ ==========
 
   async function createWorkflow(name: string) {
     const wf = await wfApi.createWorkflow({ name })
@@ -68,6 +95,10 @@ export const useWorkflowListStore = defineStore('workflowList', () => {
     history,
     loading,
     activeTab,
+    keyword,
+    tplKeyword,
+    filteredWorkflows,
+    filteredTemplates,
     loadWorkflows,
     loadTemplates,
     loadHistory,
@@ -78,7 +109,7 @@ export const useWorkflowListStore = defineStore('workflowList', () => {
   }
 })
 
-// ========== ¹¤×÷Á÷±à¼­Æ÷ Store ==========
+// ========== å·¥ä½œæµç¼–è¾‘å™¨ Store ==========
 
 export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
   const id = ref('')
@@ -93,13 +124,11 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
   const undoStack = ref<string[]>([])
   const selectedNodeId = ref('')
 
-  // ========== ½Úµã²Ù×÷ ==========
-
   function addNode(type: string, position: { x: number; y: number }) {
     const newNode: WfNode = {
       id: 'node-' + Date.now(),
       type: type as any,
-      name: type,
+      name: NODE_TYPES.find(n => n.type === type)?.name || type,
       position,
       data: { rows: [] }
     }
@@ -121,17 +150,55 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     const index = nodes.value.findIndex(n => n.id === id)
     if (index > -1) {
       nodes.value.splice(index, 1)
-      // É¾³ýÏà¹Ø±ß
       edges.value = edges.value.filter(e => e.source !== id && e.target !== id)
       markDirty()
       saveUndo()
     }
   }
 
-  // ========== ±ß²Ù×÷ ==========
-
   function addEdge(edge: WfEdge) {
     edges.value.push(edge)
+    markDirty()
+    saveUndo()
+  }
+
+  function insertNodeBetween(edgeId: string, nodeType: string) {
+    const edge = edges.value.find(e => e.id === edgeId)
+    if (!edge) return
+
+    const sourceNode = nodes.value.find(n => n.id === edge.source)
+    const targetNode = nodes.value.find(n => n.id === edge.target)
+    if (!sourceNode || !targetNode) return
+
+    const midPos = {
+      x: (sourceNode.position.x + targetNode.position.x) / 2,
+      y: (sourceNode.position.y + targetNode.position.y) / 2
+    }
+
+    const newNode: WfNode = {
+      id: 'node-' + Date.now(),
+      type: nodeType as any,
+      name: NODE_TYPES.find(n => n.type === nodeType)?.name || nodeType,
+      position: midPos,
+      data: { rows: [] }
+    }
+    nodes.value.push(newNode)
+
+    edges.value = edges.value.filter(e => e.id !== edgeId)
+
+    const newEdge1: WfEdge = {
+      id: 'e-' + Date.now() + '-1',
+      source: edge.source,
+      target: newNode.id,
+      sourceHandle: edge.sourceHandle
+    }
+    const newEdge2: WfEdge = {
+      id: 'e-' + Date.now() + '-2',
+      source: newNode.id,
+      target: edge.target
+    }
+    edges.value.push(newEdge1, newEdge2)
+
     markDirty()
     saveUndo()
   }
@@ -145,14 +212,11 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     }
   }
 
-  // ========== ×´Ì¬¹ÜÀí ==========
-
   function markDirty() {
     dirty.value = true
   }
 
   function saveUndo() {
-    // ±£´æµ±Ç°×´Ì¬¿ìÕÕ£¨¼ò»¯°æ£ºÖ»´æ JSON£©
     const snapshot = JSON.stringify({ nodes: nodes.value, edges: edges.value })
     undoStack.value.push(snapshot)
     if (undoStack.value.length > 50) {
@@ -167,8 +231,6 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     edges.value = snapshot.edges
     dirty.value = true
   }
-
-  // ========== ±£´æ/·¢²¼ ==========
 
   async function save() {
     if (!id.value) return
@@ -187,8 +249,6 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     dirty.value = false
   }
 
-  // ========== ¼ÓÔØ ==========
-
   async function load(workflowId: string) {
     const wf = await wfApi.getWorkflow(workflowId)
     id.value = wf.id
@@ -200,8 +260,6 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     dirty.value = false
     undoStack.value = []
   }
-
-  // ========== µ¼³ö/µ¼Èë ==========
 
   function toDefinition() {
     return {
@@ -217,31 +275,12 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
   }
 
   return {
-    id,
-    name,
-    status,
-    version,
-    dirty,
-    nodes,
-    edges,
-    undoStack,
-    selectedNodeId,
-    addNode,
-    updateNode,
-    removeNode,
-    addEdge,
-    removeEdge,
-    markDirty,
-    undo,
-    save,
-    publish,
-    load,
-    toDefinition,
-    fromDefinition
+    id, name, status, version, dirty, nodes, edges, undoStack, selectedNodeId,
+    addNode, updateNode, removeNode, addEdge, removeEdge, insertNodeBetween, markDirty, undo, save, publish, load, toDefinition, fromDefinition
   }
 })
 
-// ========== ¹¤×÷Á÷Ö´ÐÐ Store ==========
+// ========== å·¥ä½œæµæ‰§è¡Œ Store ==========
 
 export const useWorkflowExecutionStore = defineStore('workflowExecution', () => {
   const executing = ref(false)
@@ -271,14 +310,7 @@ export const useWorkflowExecutionStore = defineStore('workflowExecution', () => 
   }
 
   return {
-    executing,
-    debugMode,
-    execId,
-    nodeStates,
-    logs,
-    reset,
-    updateNodeState,
-    addLog
+    executing, debugMode, execId, nodeStates, logs,
+    reset, updateNodeState, addLog
   }
 })
-

@@ -1,7 +1,8 @@
 ﻿<script setup lang="ts">
 import { computed } from 'vue'
-import type { NodeProps } from '@vue-flow/core'
+import { Handle, Position, type NodeProps } from '@vue-flow/core'
 import type { NodeType } from '@/types/workflow'
+import { useWorkflowEditorStore } from '@/stores/workflow'
 
 const props = defineProps<{
   node: NodeProps
@@ -10,11 +11,14 @@ const props = defineProps<{
   execDuration?: number
 }>()
 
+const editorStore = useWorkflowEditorStore()
+
 const nodeConfig: Record<NodeType, { color: string; bgColor: string; icon: string }> = {
   start: { color: '#334155', bgColor: '#f1f5f9', icon: 'VideoPlay' },
   end: { color: '#334155', bgColor: '#f1f5f9', icon: 'VideoPause' },
   condition: { color: '#CA8A04', bgColor: '#fefce8', icon: 'Share' },
   loop: { color: '#0891B2', bgColor: '#ecfeff', icon: 'Refresh' },
+  loop_end: { color: '#0891B2', bgColor: '#ecfeff', icon: 'CircleCheck' },
   human: { color: '#7C3AED', bgColor: '#faf5ff', icon: 'User' },
   variable_assign: { color: '#64748B', bgColor: '#f8fafc', icon: 'Edit' },
   template_render: { color: '#B45309', bgColor: '#fffbeb', icon: 'Document' },
@@ -56,10 +60,23 @@ function formatDuration(ms?: number) {
   if (ms < 1000) return ms + 'ms'
   return (ms / 1000).toFixed(1) + 's'
 }
+
+// 点击设置图标打开节点配置抽屉
+function openConfig() {
+  editorStore.selectedNodeId = props.node.id
+}
+
+// Vue Flow Handle 连接点样式（统一主色描边）
+const handleStyle = {
+  background: '#fff',
+  border: '2px solid #409eff',
+  width: '10px',
+  height: '10px'
+}
 </script>
 
 <template>
-  <div 
+  <div
     class="base-node-card"
     :class="{ selected, [execStatus || '']: true }"
     :style="{
@@ -67,6 +84,11 @@ function formatDuration(ms?: number) {
       backgroundColor: config.bgColor
     }"
   >
+    <!-- 右上角设置图标 -->
+    <div class="node-settings-btn" @click.stop="openConfig" @mousedown.stop>
+      <el-icon :size="14"><Setting /></el-icon>
+    </div>
+
     <div class="node-header">
       <el-icon :style="{ color: config.color }" :size="18">
         <component :is="config.icon" />
@@ -76,25 +98,37 @@ function formatDuration(ms?: number) {
         {{ statusLabel }}
       </el-tag>
     </div>
-    
+
     <div v-if="node.data?.rows?.length" class="node-rows">
       <div v-for="(row, i) in node.data.rows" :key="i" class="node-row">
         <span class="row-key">{{ row[0] }}</span>
         <span class="row-value">{{ row[1] }}</span>
       </div>
     </div>
-    
+
     <div v-if="execDuration" class="node-duration">
       {{ formatDuration(execDuration) }}
     </div>
-    
-    <div class="handle input" />
-    <div class="handle output" />
-    
+
+    <!-- 输入连接点（左侧）：开始节点无输入 -->
+    <Handle
+      v-if="node.type !== 'start'"
+      type="target"
+      :position="Position.Left"
+      :style="handleStyle"
+    />
+
+    <!-- 输出连接点（右侧）：条件分支两个输出，结束节点无输出 -->
     <template v-if="node.type === 'condition'">
-      <div class="handle output-left" />
-      <div class="handle output-right" />
+      <Handle id="yes" type="source" :position="Position.Right" :style="{ ...handleStyle, top: '30%' }" />
+      <Handle id="no" type="source" :position="Position.Right" :style="{ ...handleStyle, top: '70%' }" />
     </template>
+    <Handle
+      v-else-if="node.type !== 'end'"
+      type="source"
+      :position="Position.Right"
+      :style="handleStyle"
+    />
   </div>
 </template>
 
@@ -108,17 +142,21 @@ function formatDuration(ms?: number) {
   border-style: solid;
   cursor: pointer;
   transition: all 0.2s;
-  
+
   &.selected {
     box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.5);
   }
-  
+
   &.running {
     animation: pulse 1.5s infinite;
   }
-  
+
   &:hover {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+
+  &:hover .node-settings-btn {
+    opacity: 1;
   }
 }
 
@@ -127,12 +165,34 @@ function formatDuration(ms?: number) {
   50% { opacity: 0.7; }
 }
 
+.node-settings-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s;
+  color: #909399;
+  z-index: 5;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: #409eff;
+  }
+}
+
 .node-header {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
-  
+
   .node-name {
     flex: 1;
     font-size: 14px;
@@ -151,12 +211,12 @@ function formatDuration(ms?: number) {
   display: flex;
   gap: 8px;
   font-size: 12px;
-  
+
   .row-key {
     color: #909399;
     min-width: 50px;
   }
-  
+
   .row-value {
     color: #606266;
     flex: 1;
@@ -175,36 +235,5 @@ function formatDuration(ms?: number) {
   background: #fff;
   padding: 2px 6px;
   border-radius: 4px;
-}
-
-.handle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  background: #fff;
-  border: 2px solid #409eff;
-  border-radius: 50%;
-  
-  &.input {
-    left: -6px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-  
-  &.output {
-    right: -6px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-  
-  &.output-left {
-    right: -6px;
-    top: 30%;
-  }
-  
-  &.output-right {
-    right: -6px;
-    top: 70%;
-  }
 }
 </style>

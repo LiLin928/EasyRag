@@ -7,10 +7,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.config import settings
+from app.core.rate_limit import limiter
 from app.exceptions import BizException
 from app.security.init_admin import ensure_admin
-from app.api.v2 import auth, health, settings as settings_api
+from app.api.v2 import assets, auth, chat, documents, elements, elements_list, feedback, health, knowledge, metadata, parse_tasks, retrieval, retrieval_settings, retrieval_testing, scenes, settings as settings_api, tree
+from app.api.v2 import tools, skills, mcps, agents, workflows, executions, todos, templates, users, audit, webhooks, versions
 from app.logging import setup_logging, new_request_id
 
 setup_logging()
@@ -29,6 +33,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="EasyRAG API", version="0.1.0", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,7 +71,31 @@ async def biz_exception_handler(request: Request, exc: BizException):
 
 
 app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(assets.router, prefix=settings.api_prefix)
+app.include_router(knowledge.router, prefix=settings.api_prefix)
+app.include_router(metadata.router, prefix=settings.api_prefix)
+app.include_router(retrieval_settings.router, prefix=settings.api_prefix)
+app.include_router(retrieval.router, prefix=settings.api_prefix)
+app.include_router(retrieval_testing.router, prefix=settings.api_prefix)
+app.include_router(parse_tasks.router, prefix=settings.api_prefix)
 app.include_router(settings_api.router, prefix=settings.api_prefix)
+app.include_router(documents.router, prefix=settings.api_prefix)
+app.include_router(tree.router, prefix=settings.api_prefix)
+app.include_router(elements_list.router, prefix=settings.api_prefix)
+app.include_router(chat.router, prefix=settings.api_prefix)
+app.include_router(scenes.router, prefix=settings.api_prefix)
+app.include_router(feedback.router, prefix=settings.api_prefix)
+app.include_router(elements.router, prefix=settings.api_prefix)
+app.include_router(tools.router, prefix=settings.api_prefix)
+app.include_router(skills.router, prefix=settings.api_prefix)
+app.include_router(mcps.router, prefix=settings.api_prefix)
+app.include_router(agents.router, prefix=settings.api_prefix)
+app.include_router(workflows.router, prefix=settings.api_prefix)
+app.include_router(executions.router, prefix=settings.api_prefix)
+app.include_router(todos.router, prefix=settings.api_prefix)
+app.include_router(templates.router, prefix=settings.api_prefix)
+app.include_router(users.router, prefix=settings.api_prefix)
+app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(health.router)
 
 
@@ -72,3 +103,5 @@ app.include_router(health.router)
 def root():
     """根路径健康探针，返回服务名与状态。"""
     return {"code": 0, "message": "success", "data": {"service": "easyrag", "status": "ok"}}
+app.include_router(webhooks.router, prefix=settings.api_prefix)
+app.include_router(versions.router, prefix=settings.api_prefix)

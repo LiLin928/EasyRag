@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { Skill, SkillScript } from '@/types/skill'
@@ -161,10 +161,10 @@ function updateBasic(basic: any) {
 </script>
 
 <template>
-  <el-drawer
+  <el-dialog
     :model-value="visible"
     :title="data ? (isBuiltin ? '查看内置技能' : '编辑技能') : '新建技能'"
-    size="700px"
+    width="800px"
     :close-on-click-modal="false"
     @update:model-value="handleClose"
   >
@@ -238,12 +238,12 @@ function updateBasic(basic: any) {
         </el-button>
       </div>
     </template>
-  </el-drawer>
+  </el-dialog>
 </template>
 
 <style lang="scss" scoped>
 .config-tabs {
-  height: 100%;
+  min-height: 450px;
 
   :deep(.el-tabs__content) {
     height: calc(100% - 40px);
@@ -256,9 +256,10 @@ function updateBasic(basic: any) {
   }
 }
 
-.drawer-footer {
+.dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
 }
 </style>
+

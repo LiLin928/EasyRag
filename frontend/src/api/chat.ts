@@ -1,15 +1,15 @@
-// ¶Ô»° API
+// å¯¹è¯ API
 import request from './request'
 import type { Conversation, ChatMessage, Scene } from '@/types/chat'
 
-// ========== »á»°¹ÜÀí ==========
+// ========== ä¼šè¯ç®¡ç† ==========
 
 export function getConversations(): Promise<Conversation[]> {
   return request.get('/chat/conversations')
 }
 
-export function createConversation(title?: string): Promise<Conversation> {
-  return request.post('/chat/conversations', { title })
+export function createConversation(title?: string, agentId?: string): Promise<Conversation> {
+  return request.post('/chat/conversations', { title, agentId })
 }
 
 export function deleteConversation(id: string): Promise<void> {
@@ -20,14 +20,14 @@ export function getHistory(convId: string): Promise<ChatMessage[]> {
   return request.get('/chat/conversations/' + convId + '/messages')
 }
 
-// ========== ¶Ô»°£¨SSE£© ==========
+// ========== å¯¹è¯æµ SSE ==========
 
 export function getChatUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE || '/api/v2'
   return baseUrl + '/chat'
 }
 
-// ========== ÒıÓÃÏêÇé ==========
+// ========== å…ƒç´ è¯¦æƒ… ==========
 
 export function getElementDetail(elementId: string): Promise<any> {
   return request.get('/elements/' + elementId)
@@ -37,15 +37,14 @@ export function getElementContext(elementId: string, window = 3): Promise<any[]>
   return request.get('/elements/' + elementId + '/context', { params: { window } })
 }
 
-// ========== ³¡¾° ==========
+// ========== åœºæ™¯ ==========
 
 export function getScenes(): Promise<Scene[]> {
   return request.get('/scenes')
 }
 
-// ========== ·´À¡ ==========
+// ========== åé¦ˆ ==========
 
 export function sendFeedback(data: { messageId: string; type: 'like' | 'dislike' }): Promise<void> {
   return request.post('/feedback', data)
 }
-

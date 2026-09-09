@@ -1,11 +1,12 @@
-﻿<script setup lang="ts">
-import { ref, watch } from 'vue'
+<script setup lang="ts">
+import { ref, watch, markRaw } from 'vue'
 import { VueFlow, useVueFlow, type Node, type Edge } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 import { useWorkflowEditorStore, useWorkflowExecutionStore } from '@/stores/workflow'
 import BaseNodeCard from './BaseNodeCard.vue'
+import AddButtonEdge from './AddButtonEdge.vue'
 import type { WfEdge } from '@/types/workflow'
 
 import '@vue-flow/core/dist/style.css'
@@ -14,8 +15,11 @@ import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 
 const editorStore = useWorkflowEditorStore()
+const edgeTypes = {
+  default: markRaw(AddButtonEdge)
+}
 const execStore = useWorkflowExecutionStore()
-const { onConnect, onNodeDragStop, onNodeDoubleClick, onNodesChange } = useVueFlow()
+const { onConnect, onNodeDragStop, onNodeDoubleClick, onNodesChange, onEdgesChange } = useVueFlow()
 
 const nodes = ref<Node[]>([])
 const edges = ref<Edge[]>([])
@@ -55,7 +59,7 @@ onConnect((params) => {
     id: 'e-' + Date.now(),
     source: params.source,
     target: params.target,
-    sourceHandle: params.sourceHandle as 'l' | 'r' | undefined
+    sourceHandle: params.sourceHandle as 'yes' | 'no' | undefined
   }
   editorStore.addEdge(newEdge)
 })
@@ -76,6 +80,14 @@ onNodesChange((changes) => {
   changes.forEach(change => {
     if (change.type === 'remove') {
       editorStore.removeNode(change.id)
+    }
+  })
+})
+
+onEdgesChange((changes) => {
+  changes.forEach(change => {
+    if (change.type === 'remove') {
+      editorStore.removeEdge(change.id)
     }
   })
 })
@@ -117,12 +129,14 @@ function getExecDuration(nodeId: string) {
       :default-zoom="1"
       :min-zoom="0.2"
       :max-zoom="4"
+      :delete-key-code="['Backspace', 'Delete']"
+      :edge-types="edgeTypes"
       fit-view-on-init
       class="vue-flow-canvas"
     >
       <Background pattern-gap="20" :size="1" />
       <Controls />
-      <MiniMap />
+      <!-- <MiniMap /> -->
       
       <template #node-start="nodeProps">
         <BaseNodeCard :node="nodeProps" :exec-status="getExecStatus(nodeProps.id)" :exec-duration="getExecDuration(nodeProps.id)" />
@@ -134,6 +148,9 @@ function getExecDuration(nodeId: string) {
         <BaseNodeCard :node="nodeProps" :exec-status="getExecStatus(nodeProps.id)" :exec-duration="getExecDuration(nodeProps.id)" />
       </template>
       <template #node-loop="nodeProps">
+        <BaseNodeCard :node="nodeProps" :exec-status="getExecStatus(nodeProps.id)" :exec-duration="getExecDuration(nodeProps.id)" />
+      </template>
+      <template #node-loop_end="nodeProps">
         <BaseNodeCard :node="nodeProps" :exec-status="getExecStatus(nodeProps.id)" :exec-duration="getExecDuration(nodeProps.id)" />
       </template>
       <template #node-human="nodeProps">
@@ -190,3 +207,4 @@ function getExecDuration(nodeId: string) {
   stroke-width: 3;
 }
 </style>
+

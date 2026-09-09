@@ -1,5 +1,6 @@
-﻿<script setup lang="ts">
-import { onMounted } from 'vue'
+<script setup lang="ts">
+import { onMounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ConversationList from './components/ConversationList.vue'
@@ -9,9 +10,40 @@ import DocumentPicker from './components/DocumentPicker.vue'
 import SceneSelector from './components/SceneSelector.vue'
 
 const chatStore = useChatStore()
+const route = useRoute()
 
-onMounted(() => {
-  chatStore.loadConversations()
+// 加载会话列表，并根据 URL 参数选中会话
+onMounted(async () => {
+  await chatStore.loadConversations()
+  
+  // 如果 URL 中有 conversationId，选中该会话
+  const conversationId = route.params.conversationId as string
+  if (conversationId) {
+    // 检查会话是否存在
+    const exists = chatStore.conversations.find(c => c.id === conversationId)
+    if (exists) {
+      chatStore.selectConversation(conversationId)
+    } else {
+      // 会话不存在，可能是从智能体跳转过来但数据还未同步
+      // 稍等后重试
+      setTimeout(() => {
+        const retry = chatStore.conversations.find(c => c.id === conversationId)
+        if (retry) {
+          chatStore.selectConversation(conversationId)
+        }
+      }, 500)
+    }
+  }
+})
+
+// 监听路由变化，处理切换会话
+watch(() => route.params.conversationId, (newId) => {
+  if (newId && typeof newId === 'string') {
+    const exists = chatStore.conversations.find(c => c.id === newId)
+    if (exists) {
+      chatStore.selectConversation(newId)
+    }
+  }
 })
 </script>
 

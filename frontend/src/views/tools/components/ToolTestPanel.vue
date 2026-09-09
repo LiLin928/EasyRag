@@ -1,4 +1,4 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useToolStore } from '@/stores/tool'
@@ -101,10 +101,10 @@ const hasArgs = computed(() => {
 </script>
 
 <template>
-  <el-drawer
+  <el-dialog
     :model-value="visible"
     title="测试工具"
-    size="500px"
+    width="600px"
     @update:model-value="handleClose"
   >
     <div v-if="tool" class="test-panel">
@@ -202,7 +202,7 @@ const hasArgs = computed(() => {
     <div v-else class="no-tool">
       <el-empty description="请选择要测试的工具" />
     </div>
-  </el-drawer>
+  </el-dialog>
 </template>
 
 <style lang="scss" scoped>
@@ -326,3 +326,4 @@ const hasArgs = computed(() => {
   padding: 48px 0;
 }
 </style>
+

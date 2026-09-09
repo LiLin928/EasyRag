@@ -23,12 +23,13 @@ export default defineConfig({
         }
     },
     server: {
-        port: 3000,
-        proxy: {
-            '/api': {
-                target: 'http://localhost:8080',
-                changeOrigin: true
-            }
-        }
+        port: 3000
+        // proxy 已禁用，使用 Mock 模式
+        // proxy: {
+        //   '/api': {
+        //     target: 'http://localhost:8080',
+        //     changeOrigin: true
+        //   }
+        // }
     }
 });

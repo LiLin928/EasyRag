@@ -1,6 +1,6 @@
-﻿// 工作流 API
+// 工作流 API
 import request from './request'
-import type { Workflow, Template, Execution } from '@/types/workflow'
+import type { Workflow, Template, Execution, ExecutionDetail } from '@/types/workflow'
 
 // ========== 工作流列表 ==========
 
@@ -50,8 +50,12 @@ export function getExecutions(params?: { workflowId?: string; limit?: number }):
   return request.get('/executions', { params })
 }
 
-export function executeWorkflow(id: string, debug = false): Promise<{ executionId: string }> {
-  return request.post('/workflows/' + id + '/execute', { debug })
+export function getExecutionDetail(executionId: string): Promise<ExecutionDetail> {
+  return request.get('/executions/' + executionId)
+}
+
+export function executeWorkflow(id: string, debug = false, inputs?: Record<string, any>): Promise<{ executionId: string }> {
+  return request.post('/workflows/' + id + '/execute', { debug, inputs })
 }
 
 export function getExecutionStreamUrl(executionId: string): string {

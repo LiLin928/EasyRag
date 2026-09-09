@@ -4,51 +4,99 @@ import * as chatApi from '@/api/chat'
 import { useSSE } from '@/composables/useSSE'
 import type { Conversation, ChatMessage, Reference, Phase, Scene } from '@/types/chat'
 
-// ����Ψһ ID
+// 生成唯一 ID
 function generateId() {
   return 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9)
 }
 
 export const useChatStore = defineStore('chat', () => {
-  // ========== �Ự״̬ ==========
+  // ========== 会话状态 ==========
   const conversations = ref<Conversation[]>([])
   const activeConversationId = ref<string>('')
   const messages = ref<ChatMessage[]>([])
   
-  // ========== ��ʽ״̬ ==========
+  // ========== 流式状态 ==========
   const isStreaming = ref(false)
   const currentPhase = ref<Phase>('idle')
   const streamBuffer = ref('')
   
-  // ========== ������׷�� ==========
+  // ========== 引用和追踪 ==========
   const references = ref<Reference[]>([])
   const traceInfo = ref<any>(null)
   
-  // ========== �ĵ��볡�� ==========
+  // ========== 文档和场景 ==========
   const selectedDocIds = ref<string[]>([])
   const activeScene = ref('general')
   const scenes = ref<Scene[]>([])
   
-  // ========== SSE ���� ==========
+  // ========== 创建会话锁 ==========
+  let isCreatingConversation = false
+  let lastCreatedId: string | null = null
+  
+  // ========== SSE 连接 ==========
   const { connect, abort } = useSSE()
 
-  // ========== �������� ==========
+  // ========== 计算属性 ==========
   const activeConversation = computed(() => {
     return conversations.value.find(c => c.id === activeConversationId.value)
   })
 
-  // ========== �Ự���� ==========
+  // ========== 会话管理 ==========
   
   async function loadConversations() {
     conversations.value = await chatApi.getConversations()
   }
 
-  async function createConversation(title?: string) {
-    const conv = await chatApi.createConversation(title)
-    conversations.value.unshift(conv)
-    activeConversationId.value = conv.id
-    messages.value = []
-    return conv
+  async function createConversation(title?: string, agentId?: string) {
+    // 防止重复创建 - 检查锁
+    if (isCreatingConversation) {
+      console.log('[chatStore] 正在创建会话中，忽略重复请求')
+      return
+    }
+    
+    isCreatingConversation = true
+    console.log('[chatStore] 开始创建会话:', { title, agentId })
+    
+    try {
+      const conv = await chatApi.createConversation(title, agentId)
+      console.log('[chatStore] API 返回会话:', conv.id)
+      
+      // 检查是否是上次创建的同一个会话（防止重复处理）
+      if (lastCreatedId === conv.id) {
+        console.log('[chatStore] 检测到重复响应，直接激活已有会话:', conv.id)
+        activeConversationId.value = conv.id
+        messages.value = []
+        return conversations.value.find(c => c.id === conv.id)
+      }
+      
+      // 检查列表中是否已存在相同 ID
+      const existingIndex = conversations.value.findIndex(c => c.id === conv.id)
+      if (existingIndex >= 0) {
+        // 如果已存在，也要激活该会话！
+        console.log('[chatStore] 会话已存在，激活该会话:', conv.id)
+        lastCreatedId = conv.id
+        activeConversationId.value = conv.id
+        messages.value = []
+        return conversations.value[existingIndex]
+      }
+      
+      // 新会话，添加到列表开头
+      lastCreatedId = conv.id
+      conversations.value.unshift(conv)
+      activeConversationId.value = conv.id
+      messages.value = []
+      console.log('[chatStore] 新会话已添加并激活:', conv.id)
+      return conv
+    } catch (error) {
+      console.error('[chatStore] 创建会话失败:', error)
+      throw error
+    } finally {
+      // 延迟重置锁
+      setTimeout(() => {
+        isCreatingConversation = false
+        console.log('[chatStore] 创建锁已重置')
+      }, 500)
+    }
   }
 
   async function deleteConversation(id: string) {
@@ -71,12 +119,12 @@ export const useChatStore = defineStore('chat', () => {
     loadHistory(id)
   }
 
-  // ========== ������Ϣ ==========
+  // ========== 消息处理 ==========
 
   async function sendMessage(question: string) {
     if (isStreaming.value) return
 
-    // �����û���Ϣ
+    // 创建用户消息
     const userMsg: ChatMessage = {
       id: generateId(),
       role: 'user',
@@ -85,14 +133,14 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(userMsg)
 
-    // ����״̬
+    // 设置状态
     isStreaming.value = true
     currentPhase.value = 'parse'
     streamBuffer.value = ''
     references.value = []
     traceInfo.value = null
 
-    // ����������Ϣռλ
+    // 创建助手消息占位
     const assistantMsg: ChatMessage = {
       id: generateId(),
       role: 'assistant',
@@ -102,7 +150,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     messages.value.push(assistantMsg)
 
-    // SSE ����
+    // SSE 连接
     try {
       await connect(chatApi.getChatUrl(), {
         body: {
@@ -117,7 +165,7 @@ export const useChatStore = defineStore('chat', () => {
       })
     } catch (error) {
       console.error('SSE error:', error)
-      assistantMsg.content = '��Ǹ�������˴��������ԡ�'
+      assistantMsg.content = '抱歉，发生了错误，请重试。'
       isStreaming.value = false
       currentPhase.value = 'idle'
     }
@@ -134,7 +182,7 @@ export const useChatStore = defineStore('chat', () => {
         break
 
       case 'navigation':
-        // ����ê�㣬�ݲ�����
+        // 导航锚点，暂不处理
         break
 
       case 'references':
@@ -159,7 +207,7 @@ export const useChatStore = defineStore('chat', () => {
         break
 
       case 'error':
-        msg.content = '����' + (data.message || 'δ֪����')
+        msg.content = '错误：' + (data.message || '未知错误')
         isStreaming.value = false
         currentPhase.value = 'idle'
         break
@@ -172,7 +220,7 @@ export const useChatStore = defineStore('chat', () => {
     currentPhase.value = 'idle'
   }
 
-  // ========== �ĵ��볡�� ==========
+  // ========== 文档和场景 ==========
 
   function setSelectedDocs(ids: string[]) {
     selectedDocIds.value = ids
@@ -186,13 +234,13 @@ export const useChatStore = defineStore('chat', () => {
     scenes.value = await chatApi.getScenes()
   }
 
-  // ========== ���� ==========
+  // ========== 反馈 ==========
 
   async function sendFeedback(messageId: string, type: 'like' | 'dislike') {
     await chatApi.sendFeedback({ messageId, type })
   }
 
-  // ========== ���� ==========
+  // ========== 重置 ==========
 
   function reset() {
     conversations.value = []
@@ -203,10 +251,11 @@ export const useChatStore = defineStore('chat', () => {
     streamBuffer.value = ''
     references.value = []
     traceInfo.value = null
+    lastCreatedId = null
   }
 
   return {
-    // ״̬
+    // 状态
     conversations,
     activeConversationId,
     messages,
@@ -219,30 +268,29 @@ export const useChatStore = defineStore('chat', () => {
     activeScene,
     scenes,
     
-    // ��������
+    // 计算属性
     activeConversation,
     
-    // �Ự����
+    // 会话管理
     loadConversations,
     createConversation,
     deleteConversation,
     loadHistory,
     selectConversation,
     
-    // ��Ϣ����
+    // 消息处理
     sendMessage,
     stopGeneration,
     
-    // �ĵ��볡��
+    // 文档和场景
     setSelectedDocs,
     setScene,
     loadScenes,
     
-    // ����
+    // 反馈
     sendFeedback,
     
-    // ����
+    // 重置
     reset
   }
 })
-

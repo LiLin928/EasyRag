@@ -23,14 +23,18 @@ class UserInfo(BaseModel):
     Attributes:
         id: 用户 id（字符串形式 UUID）。
         username: 用户名。
-        display_name: 显示名，可空。
-        role: 角色。
+        nickname: 显示名，可空。
+        avatar: 头像 URL，可空。
+        email: 邮箱，可空。
+        roles: 角色列表。
     """
 
     id: str
     username: str
-    display_name: str | None = None
-    role: str
+    nickname: str | None = None
+    avatar: str | None = None
+    email: str | None = None
+    roles: list[str] = []
 
 
 class LoginResult(BaseModel):

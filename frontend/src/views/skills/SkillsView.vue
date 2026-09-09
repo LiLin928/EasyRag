@@ -64,27 +64,23 @@ function handleFilterChange(value: string | number | boolean | undefined) {
   <div class="skills-view">
     <PageHeader title="技能管理" subtitle="管理可复用的能力包，包含触发条件、Prompt SOP 和资源挂载">
       <template #actions>
+        <el-input
+          v-model="skillStore.keyword"
+          placeholder="搜索技能"
+          prefix-icon="Search"
+          clearable
+          style="width: 240px"
+        />
+        <el-radio-group v-model="skillStore.filter" @change="handleFilterChange">
+          <el-radio-button value="all">全部</el-radio-button>
+          <el-radio-button value="builtin">内置</el-radio-button>
+          <el-radio-button value="custom">自定义</el-radio-button>
+        </el-radio-group>
         <el-button type="primary" icon="Plus" @click="handleCreate">
           新建技能
         </el-button>
       </template>
     </PageHeader>
-
-    <!-- 搜索和过滤 -->
-    <div class="toolbar">
-      <el-input
-        v-model="skillStore.keyword"
-        placeholder="搜索技能名称或描述..."
-        prefix-icon="Search"
-        clearable
-        style="width: 300px"
-      />
-      <el-radio-group v-model="skillStore.filter" @change="handleFilterChange">
-        <el-radio-button value="all">全部</el-radio-button>
-        <el-radio-button value="builtin">内置</el-radio-button>
-        <el-radio-button value="custom">自定义</el-radio-button>
-      </el-radio-group>
-    </div>
 
     <div v-if="skillStore.loading" class="loading-state">
       <el-icon class="is-loading" :size="32"><Loading /></el-icon>
@@ -127,14 +123,6 @@ function handleFilterChange(value: string | number | boolean | undefined) {
   padding: 0;
 }
 
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  gap: 16px;
-}
-
 .loading-state {
   display: flex;
   flex-direction: column;
@@ -150,7 +138,8 @@ function handleFilterChange(value: string | number | boolean | undefined) {
 
 .skills-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
+  margin-top: 16px;
 }
 </style>

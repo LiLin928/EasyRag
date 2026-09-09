@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import * as mcpApi from '@/api/mcp'
 import type { Mcp, McpTestResult } from '@/types/mcp'
 
@@ -8,6 +8,19 @@ export const useMcpStore = defineStore('mcp', () => {
   const mcps = ref<Mcp[]>([])
   const loading = ref(false)
   const currentMcp = ref<Mcp | null>(null)
+  const keyword = ref('')
+
+  // ========== 计算属性 ==========
+
+  // 按关键词过滤的 MCP 列表（名称 / 命令或 URL）
+  const filteredMcps = computed(() => {
+    if (!keyword.value.trim()) return mcps.value
+    const kw = keyword.value.toLowerCase()
+    return mcps.value.filter(m =>
+      m.name.toLowerCase().includes(kw) ||
+      (m.cmd || '').toLowerCase().includes(kw)
+    )
+  })
 
   // ========== MCP 操作 ==========
 
@@ -64,6 +77,7 @@ export const useMcpStore = defineStore('mcp', () => {
     mcps.value = []
     currentMcp.value = null
     loading.value = false
+    keyword.value = ''
   }
 
   return {
@@ -71,6 +85,8 @@ export const useMcpStore = defineStore('mcp', () => {
     mcps,
     loading,
     currentMcp,
+    keyword,
+    filteredMcps,
 
     // 操作
     loadMcps,

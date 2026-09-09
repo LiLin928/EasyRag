@@ -68,6 +68,13 @@ async function handleSubmit(data: Partial<Mcp>) {
   <div class="mcp-view">
     <PageHeader title="MCP 服务管理" subtitle="管理 Model Context Protocol 服务，支持 stdio 和 SSE 两种连接方式">
       <template #actions>
+        <el-input
+          v-model="mcpStore.keyword"
+          placeholder="搜索 MCP 服务"
+          prefix-icon="Search"
+          clearable
+          style="width: 240px"
+        />
         <el-button type="primary" icon="Plus" @click="handleCreate">
           添加 MCP
         </el-button>
@@ -80,18 +87,18 @@ async function handleSubmit(data: Partial<Mcp>) {
     </div>
 
     <EmptyState
-      v-else-if="mcpStore.mcps.length === 0"
+      v-else-if="mcpStore.filteredMcps.length === 0"
       icon="Connection"
-      text="暂无 MCP 服务"
+      :text="mcpStore.keyword ? '未找到匹配的 MCP 服务' : '暂无 MCP 服务'"
     >
       <template #action>
-        <el-button type="primary" @click="handleCreate">添加 MCP</el-button>
+        <el-button v-if="!mcpStore.keyword" type="primary" @click="handleCreate">添加 MCP</el-button>
       </template>
     </EmptyState>
 
     <div v-else class="mcps-grid">
       <McpCard
-        v-for="mcp in mcpStore.mcps"
+        v-for="mcp in mcpStore.filteredMcps"
         :key="mcp.id"
         :data="mcp"
         @config="handleConfig"
@@ -134,7 +141,7 @@ async function handleSubmit(data: Partial<Mcp>) {
 
 .mcps-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 20px;
   margin-top: 16px;
 }

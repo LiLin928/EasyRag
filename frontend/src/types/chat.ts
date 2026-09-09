@@ -1,4 +1,4 @@
-﻿// 对话模块类型定义
+// 对话模块类型定义
 
 // 会话
 export interface Conversation {
@@ -6,6 +6,8 @@ export interface Conversation {
   title: string
   lastTime: string
   msgCount: number
+  agentId?: string           // 关联的智能体 ID（可选）
+  agentName?: string         // 智能体名称（用于显示）
 }
 
 // 消息
