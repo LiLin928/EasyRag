@@ -11,7 +11,7 @@ import json
 
 from sqlalchemy import select
 
-from app.core.engine.arq_client import enqueue_workflow_task
+from app.core.engine.celery_client import enqueue_workflow_task
 from app.db.session import async_session
 from app.models.agent import Agent
 from app.models.mcp import Mcp

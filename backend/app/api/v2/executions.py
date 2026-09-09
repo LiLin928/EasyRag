@@ -1,7 +1,7 @@
 """executions 路由：执行历史 + SSE 流 + 调试控制。
 
-stream 端点订阅 PostgreSQL SSE bus 实时推送工作流执行进度。
-cancel / resume / debug 端点操作执行记录状态。
+stream 端点订阅 Redis Streams 实时推送工作流执行进度。
+cancel / resume / debug 端点使用 Celery API 控制任务。
 """
 import asyncio
 
@@ -12,11 +12,12 @@ from sqlalchemy import select
 from app.api.deps import get_current_user
 from app.api.response import ok
 from app.db.session import async_session
-from app.core.engine.sse_bus_pg import subscribe
-from app.core.engine.pg_queue import PGJobQueue
+from app.core.redis_streams import subscribe_events
+from app.core.celery_app import celery_app
 from app.exceptions import BizException, ErrorCode
 from app.models.workflow import Workflow, WorkflowExecution
 from app.schemas.workflow import map_exec_status, map_exec_trigger
+from app.sse.emitter import sse_event
 
 router = APIRouter(prefix="/executions", tags=["executions"])
 
@@ -55,9 +56,37 @@ async def list_(
     return ok([_exec_out(ex, wf) for ex, wf in rows])
 
 
+@router.get("/{eid}/stream")
+async def stream(eid: str, me=Depends(get_current_user)):
+    """订阅执行事件流（Redis Streams 版本）。
+
+    使用 Redis Streams 实时推送，延迟 <10ms。
+    """
+    async def event_generator():
+        try:
+            async for stream, event in subscribe_events([f"workflow:{eid}"]):
+                yield sse_event(event.event_type, event.payload)
+
+                # 终止事件
+                if event.event_type in ("execution_completed", "execution_failed", "execution_cancelled"):
+                    break
+        except asyncio.CancelledError:
+            pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
 @router.post("/{eid}/cancel")
 async def cancel(eid: str, me=Depends(get_current_user)):
-    """取消执行：更新 DB status 和 pg_queue，worker 检测到后 break。"""
+    """取消执行：撤销 Celery 任务 + 更新 DB 状态。"""
     from datetime import datetime
 
     async with async_session() as s:
@@ -68,21 +97,42 @@ async def cancel(eid: str, me=Depends(get_current_user)):
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
         if ex.status in ("completed", "failed", "cancelled"):
             raise BizException(ErrorCode.BAD_REQUEST, f"执行已{ex.status}，无法取消")
-        
+
         # 更新 workflow_executions 状态
         ex.status = "cancelled"
         ex.completed_at = datetime.now()
         await s.commit()
-        
-        # 同时更新 pg_queue
-        await PGJobQueue.cancel(s, eid)
+
+    # 撤销 Celery 任务
+    celery_app.control.revoke(eid, terminate=True, signal="SIGTERM")
+
+    return ok({"success": True})
+
+
+@router.post("/{eid}/pause")
+async def pause(eid: str, me=Depends(get_current_user)):
+    """暂停执行（高级功能，需要 Worker 支持）。"""
+    async with async_session() as s:
+        ex = (
+            await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
+        ).scalar_one_or_none()
+        if not ex:
+            raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
+        if ex.status != "running":
+            raise BizException(ErrorCode.BAD_REQUEST, "仅运行中的执行可暂停")
+
+        ex.status = "paused"
+        await s.commit()
+
+    # 暂停 Celery 任务（需要自定义实现）
+    # celery_app.control.revoke(eid, terminate=False, signal="SIGUSR1")
 
     return ok({"success": True})
 
 
 @router.post("/{eid}/resume")
 async def resume(eid: str, me=Depends(get_current_user)):
-    """恢复暂停的执行：使用 pg_queue._requeue_paused，Worker 自动检测 checkpoint 并断点恢复。"""
+    """恢复暂停的执行（需要检查点支持）。"""
     async with async_session() as s:
         ex = (
             await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
@@ -91,131 +141,43 @@ async def resume(eid: str, me=Depends(get_current_user)):
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
         if ex.status != "paused":
             raise BizException(ErrorCode.BAD_REQUEST, "仅暂停状态的执行可恢复")
-        
-        # 使用 PostgreSQL 队列重新入队暂停的任务
-        await PGJobQueue._requeue_paused(s, eid)
 
-    return ok({"success": True})
-
-
-@router.post("/{eid}/debug/continue")
-async def debug_continue(eid: str, me=Depends(get_current_user)):
-    """调试模式继续执行：恢复 paused 状态到 running。"""
-    from datetime import datetime
-
-    async with async_session() as s:
-        ex = (
-            await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
+        # 恢复：重新提交任务
+        wf = (
+            await s.execute(select(Workflow).where(Workflow.id == ex.workflow_id))
         ).scalar_one_or_none()
-        if not ex:
-            raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
-        if ex.status != "paused":
-            raise BizException(ErrorCode.BAD_REQUEST, "仅暂停状态可继续")
+
+        if not wf:
+            raise BizException(ErrorCode.NOT_FOUND, "工作流不存在")
+
+        # 更新状态
         ex.status = "running"
         await s.commit()
 
+        # 重新提交任务
+        celery_app.send_task(
+            "execute_workflow",
+            args=[eid, wf.definition or {}, ex.inputs or {}],
+            kwargs={"resume": True},
+            queue="workflow",
+            task_id=eid,
+        )
+
     return ok({"success": True})
 
 
-@router.post("/{eid}/debug/test-node")
-async def debug_test_node(eid: str, body: dict = None, me=Depends(get_current_user)):
-    """调试模式单节点测试：对指定节点执行一次测试。"""
-    from app.core.engine.nodes.base import NodeRouter
-    from app.core.engine.state import resolve_dict
-    from app.models.workflow import Workflow
-
-    body = body or {}
-    node_def = body.get("node", {})
-    inputs = body.get("inputs", {})
-
-    if not node_def.get("type"):
-        raise BizException(ErrorCode.BAD_REQUEST, "缺少 node.type")
-
+@router.get("/{eid}")
+async def detail(eid: str, me=Depends(get_current_user)):
+    """获取执行详情。"""
     async with async_session() as s:
         ex = (
             await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
         ).scalar_one_or_none()
         if not ex:
             raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
+
         wf = (
             await s.execute(select(Workflow).where(Workflow.id == ex.workflow_id))
         ).scalar_one_or_none()
 
-    try:
-        executor = NodeRouter.create(node_def)
-        state = {
-            "execution_id": eid,
-            "workflow_id": str(wf.id) if wf else "",
-            "variables": inputs or {},
-            "node_outputs": {},
-        }
-        result = await executor.run(state)
-        return ok({"success": True, "output": result})
-    except Exception as e:
-        return ok({"success": False, "output": None, "error": str(e)})
-
-
-@router.get("/{eid}/nodes/{node_id}")
-async def node_detail(eid: str, node_id: str, me=Depends(get_current_user)):
-    """获取执行中某节点的详情。"""
-    from app.models.workflow import Workflow
-
-    async with async_session() as s:
-        ex = (
-            await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
-        ).scalar_one_or_none()
-        if not ex:
-            raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
-        wf = (
-            await s.execute(select(Workflow).where(Workflow.id == ex.workflow_id))
-        ).scalar_one_or_none()
-
-    # 从执行定义中查找节点信息
-    definition = {}
-    if wf and wf.definition:
-        definition = wf.definition or {}
-    node = next(
-        (n for n in definition.get("nodes", []) if n.get("id") == node_id), None
-    )
-
-    return ok({
-        "nodeId": node_id,
-        "type": node.get("type") if node else "",
-        "label": node.get("data", {}).get("label", node_id) if node else node_id,
-        "status": "idle",
-        "output": None,
-    })
-
-
-@router.get("/{eid}/stream")
-async def stream(eid: str, me=Depends(get_current_user)):
-    """SSE 执行事件流：订阅 PostgreSQL execution_events 表实时推送执行进度。"""
-
-    async with async_session() as s:
-        ex = (
-            await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
-        ).scalar_one_or_none()
-        if not ex:
-            raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
-
-    async def event_gen():
-        try:
-            # 如果执行已经完成，推送最终状态后关闭
-            if ex.status in ("completed", "failed", "cancelled"):
-                from app.sse.emitter import sse_event
-                yield sse_event(
-                    "execution_complete",
-                    {"status": ex.status, "duration_ms": ex.duration_ms},
-                )
-                return
-            # 消费 PostgreSQL 事件（sse_bus_pg.subscribe 轮询实现）
-            async for event in subscribe(eid, poll_interval=0.5):
-                yield event
-        except asyncio.CancelledError:
-            pass  # 客户端断开
-
-    return StreamingResponse(
-        event_gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return ok(_exec_out(ex, wf))

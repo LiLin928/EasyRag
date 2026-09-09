@@ -15,7 +15,7 @@ from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowVersion
 from app.schemas.workflow import ExecuteRequest, WorkflowCreate, WorkflowUpdate
-from app.core.engine.arq_client import enqueue_workflow_task
+from app.core.engine.celery_client import enqueue_workflow_task
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
