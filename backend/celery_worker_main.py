@@ -3,10 +3,10 @@
 使用方法:
     # 启动所有队列
     python celery_worker_main.py
-    
+
     # 启动指定队列
     python celery_worker_main.py -Q parse
-    
+
     # 指定并发数
     python celery_worker_main.py -c 8
 """
@@ -16,6 +16,10 @@ import argparse
 
 # 添加项目根目录到路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 加载 .env 文件（在导入 celery_app 之前）
+from dotenv import load_dotenv
+load_dotenv()
 
 from app.core.celery_app import celery_app
 

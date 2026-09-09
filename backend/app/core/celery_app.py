@@ -5,15 +5,21 @@
 from celery import Celery
 import os
 
-# 从环境变量读取 Redis URL，默认为本地
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
+# 优先使用 Celery 专用配置，回退到通用 Redis URL
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "redis://localhost:6379")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND") or os.getenv("REDIS_URL", "redis://localhost:6379")
+
+# 如果 REDIS_URL 没有指定数据库，自动添加
+if CELERY_BROKER_URL and not CELERY_BROKER_URL.endswith(("/0", "/1")):
+    CELERY_BROKER_URL = f"{CELERY_BROKER_URL}/0"
+if CELERY_RESULT_BACKEND and not CELERY_RESULT_BACKEND.endswith(("/0", "/1")):
+    CELERY_RESULT_BACKEND = f"{CELERY_RESULT_BACKEND}/1"
 
 # 创建 Celery 应用
 celery_app = Celery(
     "easyrag",
-    # 使用 Redis 作为 broker 和 backend
-    broker=f"{REDIS_URL}/0",           # 队列
-    backend=f"{REDIS_URL}/1",          # 结果存储
+    broker=CELERY_BROKER_URL,
+    backend=CELERY_RESULT_BACKEND,
     # 包含任务模块
     include=[
         "app.worker.tasks.parse_tasks",
