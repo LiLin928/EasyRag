@@ -69,11 +69,11 @@ uv run --with asyncpg python -c "..."
 
 ## 5. ⚡ 命令授权（用户明确授权，务必遵循）
 
-**用户已授权：本项目中所有 `cmd` / `git` / `uv` / `pytest` / `alembic` / `docker` / `curl` / `powershell` 等命令，agent 可直接运行，无需询问权限。**
+**用户已授权：本项目中所有 `cmd` / `git` / `uv` / `pytest` / `alembic` / `docker` / `curl` / `powershell` / `npm` / `pnpm` 等命令，agent 可直接运行，无需询问权限。直接执行即可。**
 
 **唯一例外：删除文件或破坏性操作（`rm` / `git rm` / `git reset --hard` / `DROP` 等）必须先询问用户确认。**
 
-> 含义：agent 不要为运行命令而暂停确认；看到需要跑的 git/uv/pytest 命令直接跑。只有删除文件类操作才停下来问。
+> 含义：agent 不要为运行命令而暂停确认；看到需要跑的 git/uv/pytest/alembic 等命令直接跑，不要问。只有删除文件类操作才停下来问。
 
 ---
 
