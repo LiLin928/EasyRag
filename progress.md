@@ -47,10 +47,50 @@
 - [x] 设计兼容层（保持 execute_code 接口不变）
 - [x] 更新 `task_plan.md` 和 `findings.md`
 
-### Phase 3: 实施（进行中）
+### Phase 3: 实施（完成）
 
 用户确认设计方案，开始实施。
 
+#### 实施步骤
+
+1. **配置项添加** ✅
+   - 文件：`backend/app/config.py`
+   - 新增：`opensandbox_url`, `opensandbox_api_key`, `opensandbox_timeout`, `opensandbox_memory_mb`, `opensandbox_cpu`
+
+2. **客户端实现** ✅
+   - 创建：`backend/app/providers/sandbox/` 目录
+   - 文件：`opensandbox_client.py` - 完整的异步 HTTP 客户端
+   - 功能：创建沙箱、轮询状态、获取日志、删除沙箱、健康检查
+
+3. **sandbox.py 重构** ✅
+   - 移除自建 Docker 实现
+   - 切换为调用 OpenSandbox API
+   - 保持 `execute_code()` 接口不变
+   - 代码通过环境变量传递
+
+4. **测试更新** ✅
+   - Mock 单元测试：11 个测试用例
+   - 集成测试：3 个（需移除 skip 装试真实调用）
+   - 测试结果：25 passed, 3 skipped
+
+5. **代码提交** ✅
+   - Commit: `32dad80` - feat: integrate OpenSandbox for code execution
+   - 文件变更：8 files changed, 1244 insertions(+), 117 deletions(-)
+
 ---
 
-## 实施步骤
+## ✅ 任务完成
+
+### 最终状态
+
+- **虚拟机 OpenSandbox**：运行正常 (192.168.137.13:8090)
+- **后端配置**：已完成
+- **客户端实现**：已完成
+- **接口兼容**：完全兼容
+- **测试覆盖**：Mock 测试全部通过
+
+### 后续建议
+
+1. 配置 `.env` 文件添加 `OPENSANDBOX_API_KEY`
+2. 移除集成测试的 `@pytest.mark.skip` 进行真实测试
+3. 监控虚拟机服务可用性
