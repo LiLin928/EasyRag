@@ -1,1 +1,5 @@
 """RAG 检索管线（向量 + 全文 + RRF + Rerank + 导航缩域 + 编排）。"""
+
+from app.core.retrieval.embedder import Embedder
+
+__all__ = ["Embedder"]
