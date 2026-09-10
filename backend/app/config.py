@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     slack_webhook_url: str | None = None
     dingtalk_webhook_url: str | None = None
 
+    # Prometheus 监控
+    prometheus_enabled: bool = True
+    prometheus_port: int = 9090
+    prometheus_scrape_interval: int = 15
+
+    # 指标标签
+    metrics_namespace: str = "easyrag"
+    metrics_environment: str = "development"
+
 
 settings = Settings()
 
