@@ -490,6 +490,7 @@ async def _document_from(
     session: AsyncSession, doc_id, user_id, *, for_update=False
 ) -> Document:
     doc_uuid = _uuid(doc_id, "文档 ID")
+    user_uuid = _uuid(user_id, "用户 ID")
     query = (
         select(Document, KnowledgeBase.user_id)
         .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
@@ -501,7 +502,7 @@ async def _document_from(
     if row is None:
         raise BizException(ErrorCode.NOT_FOUND, "文档不存在")
     document, owner_id = row
-    if owner_id != user_id:
+    if owner_id != user_uuid:
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该文档")
     return document
 
@@ -510,6 +511,7 @@ async def _chunk_from(
     session: AsyncSession, chunk_id, user_id, *, for_update=False
 ) -> Chunk:
     chunk_uuid = _uuid(chunk_id, "分块 ID")
+    user_uuid = _uuid(user_id, "用户 ID")
     query = (
         select(Chunk, Document.name, KnowledgeBase.user_id)
         .join(Document, Chunk.document_id == Document.id)
@@ -522,7 +524,7 @@ async def _chunk_from(
     if row is None:
         raise BizException(ErrorCode.NOT_FOUND, "分块不存在")
     chunk, document_name, owner_id = row
-    if owner_id != user_id:
+    if owner_id != user_uuid:
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该分块")
     chunk._document_name = document_name
     return chunk
