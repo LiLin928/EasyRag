@@ -36,25 +36,37 @@
 - **完成日期**: 2026-09-10
 - **Commit**: 6790465
 
-### 3. Agent 服务调用
-- **文件**: `backend/app/worker/tasks/agent_tasks.py`
-- **位置**: 行 48, 162
-- **问题描述**: Agent 任务只有模拟实现，未调用真实服务
-  - 未调用 AgentService (行 48)
-  - 未调用实际工具 (行 162)
-- **建议**: 需要集成 LangChain Agent 框架和工具系统
-- **预计工作量**: 高
+### 3. Agent 服务调用 ✅ 已完成
+- **文件**: `backend/app/services/agent_service.py`（实际实现）
+- **废弃文件**: `backend/app/worker/tasks/agent_tasks.py`（不再使用）
+- **问题描述**: ~~agent_tasks.py 中有占位符~~
+- **实际状态**:
+  - ✅ 完整的 AgentService 实现
+  - ✅ 使用 LangGraph `create_react_agent`
+  - ✅ 支持流式 SSE 输出
+  - ✅ 支持五类工具（tools, docs, wfs, mcps, skills）
+  - ✅ 对话历史和 checkpointer
+  - ✅ 完整的工具聚合系统（tool_registry.py）
+- **架构**: API 直接调用 AgentService，无需 Celery worker
+- **完成日期**: 2026-09-10（验证已实现）
 
-### 4. 工作流执行引擎
-- **文件**: `backend/app/worker/tasks/workflow_tasks.py`
-- **位置**: 行 160, 167, 174, 191
-- **问题描述**: 工作流节点执行都是占位符，未实现实际逻辑
-  - 调用 LLM 服务 (行 160)
-  - 调用检索服务 (行 167)
-  - 调用代码沙箱 (行 174)
-  - 调用 HTTP 工具 (行 191)
-- **建议**: 需要实现完整的 LangGraph 工作流引擎和节点执行器
-- **预计工作量**: 高
+### 4. 工作流执行引擎 ✅ 已完成
+- **文件**: `backend/app/core/engine/`（实际实现）
+- **废弃文件**: `backend/app/worker/tasks/workflow_tasks.py`（不再使用）
+- **问题描述**: ~~workflow_tasks.py 中有占位符~~
+- **实际状态**:
+  - ✅ GraphBuilder - 工作流编译器
+  - ✅ 12 种节点执行器完整实现：
+    - ✅ LLM - 调用 LLM 服务
+    - ✅ RAG - 调用检索服务
+    - ✅ HTTP - HTTP 请求
+    - ✅ Tool - 工具执行
+    - ✅ Code - 代码沙箱
+    - ✅ Condition, Loop, Human 等其他节点
+  - ✅ 支持 LangGraph StateGraph
+  - ✅ 支持 checkpoint 和中断点
+- **架构**: PGWorker 使用 LangGraph 执行工作流
+- **完成日期**: 2026-09-10（验证已实现）
 
 ---
 
@@ -154,19 +166,27 @@
 
 | 优先级 | 原始数量 | 已完成 | 剩余 | 完成率 |
 |--------|----------|--------|------|--------|
-| 🔴 高 | 4 | 2 | 2 | 50% |
+| 🔴 高 | 4 | 4 | 0 | **100%** |
 | 🟡 中 | 3 | 2 | 1 | 67% |
 | 🟢 低 | 7 | 0 | 7 | 0% |
-| **总计** | **14** | **4** | **10** | **29%** |
+| **总计** | **14** | **6** | **8** | **43%** |
 
 ---
 
-## ✅ 已完成项目清单
+## ✅ 已完成项目清单（按优先级）
 
-1. **Embedding 服务** (高优先级) - 完整实现，包含测试
-2. **文档解析管线** (高优先级) - parse_tasks.py 已完整实现
-3. **检索测试** (中优先级) - Worker 任务已实现
-4. **Webhook 认证** (中优先级) - JWT 认证和权限验证已添加
+### 🔴 高优先级（4/4 完成，100%）
+
+1. **文档解析管线** - `parse_tasks.py` 已完整实现所有功能
+2. **Embedding 服务** - 完整实现，包含测试
+3. **Agent 服务调用** - AgentService 已完整实现，支持 LangGraph
+4. **工作流执行引擎** - GraphBuilder + 12 种节点执行器已实现
+
+### 🟡 中优先级（2/3 完成，67%）
+
+5. **Webhook 认证** - JWT 认证和权限验证已添加
+6. **检索测试** - Worker 任务已实现
+7. **死信队列处理** - 待完善（核心功能已实现，可选优化项）
 
 ---
 
