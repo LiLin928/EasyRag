@@ -2,17 +2,18 @@
 
 提供死信任务的查询、重试、忽略等功能。
 """
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, func
 from app.api.deps import get_current_user
-from app.api.response import ok
+from app.api.response import ok, err
 from app.db.session import async_session
 from app.models.dead_letter import DeadLetterTaskModel, TaskStatus
 from app.models.user import User
 from app.worker.tasks.dead_letter import DeadLetterQueue
+from app.exceptions import ErrorCode
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 router = APIRouter(prefix="/dead-letter", tags=["dead-letter"])
@@ -59,33 +60,36 @@ async def list_dlq_tasks(
     Returns:
         死信任务列表。
     """
-    async with async_session() as session:
-        query = select(DeadLetterTaskModel)
+    try:
+        async with async_session() as session:
+            query = select(DeadLetterTaskModel)
 
-        if status:
-            query = query.where(DeadLetterTaskModel.status == status)
+            if status:
+                query = query.where(DeadLetterTaskModel.status == status)
 
-        query = query.order_by(DeadLetterTaskModel.created_at.desc())
-        query = query.offset(offset).limit(limit)
+            query = query.order_by(DeadLetterTaskModel.created_at.desc())
+            query = query.offset(offset).limit(limit)
 
-        result = await session.execute(query)
-        tasks = result.scalars().all()
+            result = await session.execute(query)
+            tasks = result.scalars().all()
 
-        return ok([
-            DeadLetterTaskOut(
-                id=str(t.id),
-                task_id=t.task_id,
-                task_name=t.task_name,
-                exception=t.exception,
-                traceback=t.traceback,
-                retry_count=t.retry_count,
-                max_retries=t.max_retries,
-                status=t.status,
-                created_at=t.created_at,
-                retried_at=t.retried_at,
-            ).model_dump()
-            for t in tasks
-        ])
+            return ok([
+                DeadLetterTaskOut(
+                    id=str(t.id),
+                    task_id=t.task_id,
+                    task_name=t.task_name,
+                    exception=t.exception,
+                    traceback=t.traceback,
+                    retry_count=t.retry_count,
+                    max_retries=t.max_retries,
+                    status=t.status,
+                    created_at=t.created_at,
+                    retried_at=t.retried_at,
+                ).model_dump()
+                for t in tasks
+            ])
+    except Exception as e:
+        return err(ErrorCode.DB_ERROR, f"查询死信任务失败: {str(e)}")
 
 
 @router.post("/tasks/{task_id}/retry")
@@ -103,14 +107,11 @@ async def retry_dlq_task(
 
     Returns:
         操作结果消息。
-
-    Raises:
-        HTTPException: 重试失败时抛出 400 错误。
     """
     success = await DeadLetterQueue.retry_dlq_task(task_id, str(me.id))
 
     if not success:
-        raise HTTPException(status_code=400, detail="重试失败")
+        return err(ErrorCode.PARAM_ERROR, "重试失败")
 
     return ok({"message": "任务已重新提交"})
 
@@ -130,23 +131,23 @@ async def ignore_dlq_task(
 
     Returns:
         操作结果消息。
-
-    Raises:
-        HTTPException: 任务不存在时抛出 404 错误。
     """
-    async with async_session() as session:
-        result = await session.execute(
-            select(DeadLetterTaskModel).where(DeadLetterTaskModel.task_id == task_id)
-        )
-        task = result.scalar_one_or_none()
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                select(DeadLetterTaskModel).where(DeadLetterTaskModel.task_id == task_id)
+            )
+            task = result.scalar_one_or_none()
 
-        if not task:
-            raise HTTPException(status_code=404, detail="任务不存在")
+            if not task:
+                return err(ErrorCode.NOT_FOUND, "任务不存在")
 
-        task.status = TaskStatus.IGNORED
-        await session.commit()
+            task.status = TaskStatus.IGNORED
+            await session.commit()
 
-    return ok({"message": "任务已忽略"})
+        return ok({"message": "任务已忽略"})
+    except Exception as e:
+        return err(ErrorCode.DB_ERROR, f"忽略任务失败: {str(e)}")
 
 
 @router.get("/stats")
@@ -165,44 +166,46 @@ async def get_dlq_stats(me: User = Depends(get_current_user)):
         - by_type: 按任务类型统计
         - last_24h: 最近 24 小时的失败任务数
     """
-    async with async_session() as session:
-        # 总数
-        total_result = await session.execute(
-            select(func.count(DeadLetterTaskModel.id))
-        )
-        total = total_result.scalar()
-
-        # 按状态统计
-        status_result = await session.execute(
-            select(
-                DeadLetterTaskModel.status,
-                func.count(DeadLetterTaskModel.id)
+    try:
+        async with async_session() as session:
+            # 总数
+            total_result = await session.execute(
+                select(func.count(DeadLetterTaskModel.id))
             )
-            .group_by(DeadLetterTaskModel.status)
-        )
-        by_status = dict(status_result.all())
+            total = total_result.scalar()
 
-        # 按任务类型统计
-        type_result = await session.execute(
-            select(
-                DeadLetterTaskModel.task_name,
-                func.count(DeadLetterTaskModel.id)
+            # 按状态统计
+            status_result = await session.execute(
+                select(
+                    DeadLetterTaskModel.status,
+                    func.count(DeadLetterTaskModel.id)
+                )
+                .group_by(DeadLetterTaskModel.status)
             )
-            .group_by(DeadLetterTaskModel.task_name)
-        )
-        by_type = dict(type_result.all())
+            by_status = dict(status_result.all())
 
-        # 最近 24 小时
-        from datetime import timedelta
-        recent_result = await session.execute(
-            select(func.count(DeadLetterTaskModel.id))
-            .where(DeadLetterTaskModel.created_at >= datetime.utcnow() - timedelta(hours=24))
-        )
-        last_24h = recent_result.scalar()
+            # 按任务类型统计
+            type_result = await session.execute(
+                select(
+                    DeadLetterTaskModel.task_name,
+                    func.count(DeadLetterTaskModel.id)
+                )
+                .group_by(DeadLetterTaskModel.task_name)
+            )
+            by_type = dict(type_result.all())
 
-    return ok({
-        "total": total,
-        "by_status": by_status,
-        "by_type": by_type,
-        "last_24h": last_24h,
-    })
+            # 最近 24 小时
+            recent_result = await session.execute(
+                select(func.count(DeadLetterTaskModel.id))
+                .where(DeadLetterTaskModel.created_at >= datetime.utcnow() - timedelta(hours=24))
+            )
+            last_24h = recent_result.scalar()
+
+        return ok({
+            "total": total,
+            "by_status": by_status,
+            "by_type": by_type,
+            "last_24h": last_24h,
+        })
+    except Exception as e:
+        return err(ErrorCode.DB_ERROR, f"获取统计数据失败: {str(e)}")

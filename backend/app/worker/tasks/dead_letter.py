@@ -138,7 +138,7 @@ class DeadLetterQueue:
         db_success = False
         try:
             async with async_session() as session:
-                from app.models.dead_letter import DeadLetterTaskModel
+                from app.models.dead_letter import DeadLetterTaskModel, TaskStatus
 
                 db_task = DeadLetterTaskModel(
                     task_id=task_id,
@@ -149,7 +149,7 @@ class DeadLetterQueue:
                     traceback=traceback_str,
                     retry_count=retry_count,
                     max_retries=max_retries,
-                    status="pending",
+                    status=TaskStatus.PENDING.value,
                 )
                 session.add(db_task)
                 await session.commit()
@@ -215,9 +215,9 @@ class DeadLetterQueue:
                 return False
 
             try:
-                # 解析参数（注意：args 和 kwargs 现在是 JSONB 类型）
-                args = dl_task.args if dl_task.args else ()
-                kwargs = dl_task.kwargs if dl_task.kwargs else {}
+                # 解析参数（注意：args 和 kwargs 是 JSONB 类型，需要转换）
+                args = tuple(dl_task.args) if dl_task.args else ()
+                kwargs = dict(dl_task.kwargs) if dl_task.kwargs else {}
 
                 # 重新提交任务
                 celery_app.send_task(
@@ -258,15 +258,23 @@ class DeadLetterQueue:
 def handle_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, **extra):
     """
     任务失败信号处理
-    
+
     当任务达到最大重试次数时，添加到死信队列
     """
     retry_count = sender.request.retries
     max_retries = sender.max_retries
-    
+
     # 只在达到最大重试次数时处理
     if retry_count >= max_retries:
-        asyncio.run(DeadLetterQueue.add_to_dlq(
+        # 安全地运行异步代码，避免事件循环冲突
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # 如果没有事件循环，创建一个新的
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.run_until_complete(DeadLetterQueue.add_to_dlq(
             task_id=task_id,
             task_name=sender.name,
             args=args,
@@ -283,11 +291,10 @@ def handle_task_failure(sender, task_id, exception, args, kwargs, traceback, ein
 def monitor_dead_letter_queue():
     """
     定时监控死信队列
-    
+
     每小时检查一次死信队列，发送告警
     """
-    import asyncio
-    
+
     async def _check():
         stats = await DeadLetterQueue.get_dlq_stats()
 
@@ -300,8 +307,15 @@ def monitor_dead_letter_queue():
 
             # TODO: 发送邮件/Slack 告警
             # await send_alert(f"Dead Letter Queue has {stats['total_failed']} tasks")
-    
-    asyncio.run(_check())
+
+    # 安全地运行异步代码
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(_check())
 
 
 # 死信队列清理任务
@@ -313,7 +327,6 @@ def cleanup_old_dlq_tasks(days: int = 30):
     Args:
         days: 保留天数，默认 30 天
     """
-    import asyncio
     from datetime import timedelta
 
     async def _cleanup():
@@ -328,7 +341,14 @@ def cleanup_old_dlq_tasks(days: int = 30):
         #     )
         #     await session.commit()
 
-    asyncio.run(_cleanup())
+    # 安全地运行异步代码
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    loop.run_until_complete(_cleanup())
 
 
 def _get_queue_for_task(task_name: str) -> str:
