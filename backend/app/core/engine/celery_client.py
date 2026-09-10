@@ -6,11 +6,14 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
+import structlog
 from sqlalchemy import select
 
 from app.db.session import async_session
 from app.models.workflow import Workflow, WorkflowExecution, WorkflowVersion
 from app.core.celery_app import celery_app
+
+logger = structlog.get_logger()
 
 
 async def enqueue_workflow_task(
@@ -30,10 +33,20 @@ async def enqueue_workflow_task(
         trigger: 触发类型 (manual/api/webhook/chat/agent)
         user_id: 触发用户 ID
         priority: 任务优先级（0-9，9最高，默认5）
+                  >= 7: 高优先级队列，用于紧急任务
+                  >= 3: 默认业务队列，用于常规任务
+                  < 3:  低优先级队列，用于后台清理等
 
     Returns:
         execution_id: 执行记录 ID
+
+    Raises:
+        ValueError: priority 超出范围或工作流不存在
     """
+    # 验证优先级范围
+    if not 0 <= priority <= 9:
+        raise ValueError(f"priority 必须在 0-9 范围内，当前值: {priority}")
+
     # 加载 workflow + version 获取 definition
     async with async_session() as s:
         wf = (
@@ -66,30 +79,53 @@ async def enqueue_workflow_task(
             started_at=datetime.utcnow(),
         )
         s.add(execution)
-        await s.commit()
-        await s.refresh(execution)
 
-        execution_id = str(execution.id)
+        try:
+            await s.commit()
+            await s.refresh(execution)
 
-        # 根据优先级选择队列（priority 范围 0-9）
-        if priority >= 7:
-            queue = "high"
-        elif priority >= 3:
-            queue = "workflow"  # 中等优先级使用业务队列
-        else:
-            queue = "low"
+            execution_id = str(execution.id)
 
-        # 提交 Celery 任务 (V2 方式)
-        celery_app.send_task(
-            "execute_workflow",
-            args=[execution_id, definition, inputs or {}],
-            kwargs={"debug": False},
-            queue=queue,
-            task_id=execution_id,  # 使用 execution_id 作为 task_id，便于追踪
-            priority=priority,  # 传递优先级给 Celery
-        )
+            # 根据优先级选择队列
+            if priority >= 7:
+                queue = "high"
+            elif priority >= 3:
+                queue = "workflow"  # 中等优先级使用业务队列
+            else:
+                queue = "low"
 
-        return execution_id
+            # 提交 Celery 任务 (V2 方式)
+            celery_app.send_task(
+                "execute_workflow",
+                args=[execution_id, definition, inputs or {}],
+                kwargs={"debug": False},
+                queue=queue,
+                task_id=execution_id,  # 使用 execution_id 作为 task_id，便于追踪
+                priority=priority,  # 传递优先级给 Celery
+            )
+
+            # 记录日志
+            logger.info(
+                "提交工作流任务",
+                execution_id=execution_id,
+                priority=priority,
+                queue=queue,
+                workflow_id=workflow_id,
+                trigger=trigger,
+            )
+
+            return execution_id
+
+        except Exception as exc:
+            # 回滚事务，确保数据一致性
+            await s.rollback()
+            logger.error(
+                "提交工作流任务失败",
+                workflow_id=workflow_id,
+                priority=priority,
+                error=str(exc),
+            )
+            raise
 
 
 # 保留向后兼容的别名

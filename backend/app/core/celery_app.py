@@ -82,6 +82,10 @@ celery_app.conf.update(
     # 任务追踪
     task_track_started=True,
     task_time_limit=3600,  # 任务硬超时 1 小时
+    task_soft_time_limit=3300,  # 软超时 55 分钟，提前 5 分钟警告
+
+    # 延迟确认 - 任务完成后再确认，避免任务丢失
+    task_acks_late=True,
 )
 
 # Celery Beat 定时任务

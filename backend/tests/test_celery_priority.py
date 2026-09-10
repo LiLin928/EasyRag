@@ -262,3 +262,58 @@ async def test_priority_boundary_low(setup_mocks):
 
         call_args = mock_celery.send_task.call_args
         assert call_args.kwargs.get("queue") == "low"
+
+
+@pytest.mark.asyncio
+async def test_invalid_priority():
+    """测试无效优先级抛出异常。"""
+    with pytest.raises(ValueError, match="priority 必须在 0-9"):
+        await enqueue_workflow_task(
+            workflow_id="test-id",
+            inputs={},
+            trigger="manual",
+            user_id=None,
+            priority=10
+        )
+
+
+@pytest.mark.asyncio
+async def test_negative_priority():
+    """测试负数优先级抛出异常。"""
+    with pytest.raises(ValueError, match="priority 必须在 0-9"):
+        await enqueue_workflow_task(
+            workflow_id="test-id",
+            inputs={},
+            trigger="manual",
+            user_id=None,
+            priority=-1
+        )
+
+
+@pytest.mark.asyncio
+async def test_workflow_not_found():
+    """测试工作流不存在抛出异常。"""
+    with patch("app.core.engine.celery_client.async_session") as mock_session:
+        # 模拟 async context manager
+        mock_session_instance = AsyncMock()
+        mock_session_instance.execute.return_value = MagicMock(
+            scalar_one_or_none=lambda: None
+        )
+
+        class MockAsyncSessionContext:
+            async def __aenter__(self):
+                return mock_session_instance
+            async def __aexit__(self, *args):
+                pass
+
+        mock_session.return_value = MockAsyncSessionContext()
+
+        # 执行测试
+        with pytest.raises(ValueError, match="工作流不存在"):
+            await enqueue_workflow_task(
+                workflow_id="invalid-id",
+                inputs={},
+                trigger="manual",
+                user_id=None,
+                priority=5
+            )
