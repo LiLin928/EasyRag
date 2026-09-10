@@ -25,6 +25,7 @@ celery_app = Celery(
         "app.worker.tasks.parse_tasks",
         "app.worker.tasks.workflow_tasks",
         "app.worker.tasks.agent_tasks",
+        "app.worker.tasks.dead_letter",  # 死信队列任务
     ],
 )
 

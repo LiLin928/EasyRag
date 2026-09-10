@@ -290,37 +290,94 @@ class DeadLetterQueue:
         }
 
 
+# Celery 任务：添加死信任务到队列
+@shared_task(name="dlq.add_to_dlq")
+def add_to_dlq_task(
+    task_id: str,
+    task_name: str,
+    args: list,
+    kwargs: dict,
+    exception: str,
+    traceback: str,
+    retry_count: int,
+    max_retries: int
+):
+    """异步添加死信任务到数据库。
+
+    作为独立的 Celery 任务运行，避免在信号处理器中直接调用异步代码。
+
+    Args:
+        task_id: Celery 任务 ID。
+        task_name: 任务名称。
+        args: 任务位置参数（JSON 可序列化的 list）。
+        kwargs: 任务关键字参数。
+        exception: 异常信息字符串。
+        traceback: 堆栈跟踪字符串。
+        retry_count: 重试次数。
+        max_retries: 最大重试次数。
+
+    Returns:
+        None
+
+    Raises:
+        不会抛出异常，所有错误都会被捕获并记录。
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(
+            DeadLetterQueue.add_to_dlq(
+                task_id=task_id,
+                task_name=task_name,
+                args=tuple(args),  # 转换回 tuple
+                kwargs=kwargs,
+                exception=exception,
+                traceback_str=traceback,
+                retry_count=retry_count,
+                max_retries=max_retries
+            )
+        )
+    finally:
+        loop.close()
+
+
 # Celery 信号处理
 @task_failure.connect
 def handle_task_failure(sender, task_id, exception, args, kwargs, traceback, einfo, **extra):
-    """
-    任务失败信号处理
+    """任务失败信号处理。
 
-    当任务达到最大重试次数时，添加到死信队列
+    当任务达到最大重试次数时，触发异步任务添加到死信队列。
+    使用 task.delay() 避免在信号处理器中直接运行异步代码。
+
+    Args:
+        sender: 任务发送者实例。
+        task_id: Celery 任务 ID。
+        exception: 异常实例。
+        args: 任务位置参数。
+        kwargs: 任务关键字参数。
+        traceback: 堆栈跟踪。
+        einfo: 异常信息对象。
+        **extra: 额外的信号参数。
+
+    Returns:
+        None
     """
     retry_count = sender.request.retries
     max_retries = sender.max_retries
 
     # 只在达到最大重试次数时处理
     if retry_count >= max_retries:
-        # 安全地运行异步代码，避免事件循环冲突
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            # 如果没有事件循环，创建一个新的
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        loop.run_until_complete(DeadLetterQueue.add_to_dlq(
+        # 触发异步任务处理死信队列（避免事件循环冲突）
+        add_to_dlq_task.delay(
             task_id=task_id,
             task_name=sender.name,
-            args=args,
-            kwargs=kwargs,
-            exception=exception,
-            traceback_str=str(traceback) if traceback else "",
+            args=list(args) if args else [],  # 转换为 list（JSON 可序列化）
+            kwargs=kwargs if kwargs else {},
+            exception=str(exception),
+            traceback=str(traceback) if traceback else "",
             retry_count=retry_count,
             max_retries=max_retries
-        ))
+        )
 
 
 # 死信队列监控任务
@@ -329,6 +386,7 @@ def monitor_dead_letter_queue():
     """定时监控死信队列。
 
     每小时检查一次死信队列，发送告警。
+    使用独立的事件循环避免与 Celery worker 冲突。
     """
 
     async def _check():
@@ -349,14 +407,13 @@ def monitor_dead_letter_queue():
                 details=stats
             )
 
-    # 安全地运行异步代码
+    # 创建独立的事件循环
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(_check())
+        loop.run_until_complete(_check())
+    finally:
+        loop.close()
 
 
 async def _send_alert(title: str, message: str, details: dict):
@@ -429,8 +486,10 @@ async def _send_alert(title: str, message: str, details: dict):
 def cleanup_old_dlq_tasks(days: int = 30):
     """清理过期的死信队列任务。
 
+    使用独立的事件循环避免与 Celery worker 冲突。
+
     Args:
-        days: 保留天数，默认 30 天
+        days: 保留天数，默认 30 天。
     """
     from datetime import timedelta
 
@@ -453,14 +512,13 @@ def cleanup_old_dlq_tasks(days: int = 30):
 
             logger.info(f"Deleted {deleted} old DLQ tasks")
 
-    # 安全地运行异步代码
+    # 创建独立的事件循环
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(_cleanup())
+        loop.run_until_complete(_cleanup())
+    finally:
+        loop.close()
 
 
 def _get_queue_for_task(task_name: str) -> str:
