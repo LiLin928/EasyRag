@@ -455,12 +455,120 @@ def execute_workflow(self, execution_id: str, ...):
     except Exception as exc:
         # 发布失败事件
         _publish_sync(f"workflow:{execution_id}", "execution_failed", {"error": str(exc)})
-        
+
         # 重试
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc, countdown=60)
         raise
 ```
+
+---
+
+## 死信队列管理
+
+当任务达到最大重试次数后，会被添加到死信队列（Dead Letter Queue），便于人工介入处理。
+
+### 数据库表
+
+```sql
+CREATE TABLE dead_letter_tasks (
+    id UUID PRIMARY KEY,
+    task_id VARCHAR(100) UNIQUE NOT NULL,
+    task_name VARCHAR(255) NOT NULL,
+    args JSONB,                    -- 任务位置参数
+    kwargs JSONB,                  -- 任务关键字参数
+    exception TEXT NOT NULL,       -- 异常信息
+    traceback TEXT,                -- 堆栈跟踪
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    retried_at TIMESTAMPTZ,        -- 重试时间
+    retried_by UUID REFERENCES users(id)  -- 重试操作用户
+);
+
+CREATE INDEX idx_dlq_task_id ON dead_letter_tasks(task_id);
+CREATE INDEX idx_dlq_status ON dead_letter_tasks(status);
+CREATE INDEX idx_dlq_created_at ON dead_letter_tasks(created_at);
+```
+
+### API 接口
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v2/dead-letter/tasks` | GET | 列出死信任务（支持状态过滤和分页） |
+| `/api/v2/dead-letter/tasks/{task_id}/retry` | POST | 重试指定任务 |
+| `/api/v2/dead-letter/tasks/{task_id}/ignore` | POST | 忽略指定任务（标记为已处理） |
+| `/api/v2/dead-letter/stats` | GET | 获取统计信息（总数、按状态/类型统计、最近24小时） |
+
+#### 示例请求
+
+```bash
+# 列出待处理的死信任务
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/api/v2/dead-letter/tasks?status=pending&limit=50"
+
+# 重试任务
+curl -X POST \
+  -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/api/v2/dead-letter/tasks/{task_id}/retry"
+
+# 获取统计信息
+curl -H "Authorization: Bearer <token>" \
+  "http://localhost:8000/api/v2/dead-letter/stats"
+```
+
+### 告警机制
+
+支持多种告警渠道，通过环境变量配置：
+
+```bash
+# 邮件告警
+ALERT_EMAIL=admin@example.com
+
+# Slack Webhook
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/xxx
+
+# 钉钉 Webhook
+DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=xxx
+```
+
+### 定时任务
+
+| 任务名称 | 执行频率 | 说明 |
+|---------|---------|------|
+| `dlq.monitor` | 每小时 | 检查死信队列并发送告警 |
+| `dlq.cleanup` | 每天 02:00 | 清理过期任务（默认保留30天） |
+| `dlq.add_to_dlq` | 按需 | 异步添加失败任务到死信队列 |
+
+### 工作流程
+
+```
+任务失败
+  ↓
+达到最大重试次数？
+  ├─ 否 → 自动重试
+  └─ 是 → 添加到死信队列
+           ↓
+       持久化到数据库
+           ↓
+       发布到 Redis Streams
+           ↓
+       定时告警通知
+           ↓
+       人工介入处理
+           ├─ 重试 → 重新提交到队列
+           └─ 忽略 → 标记为已处理
+```
+
+### 监控指标
+
+建议监控以下指标：
+
+- 死信任务总数（`total_failed`）
+- 最近24小时新增数（`last_24h`）
+- 按任务类型分布（`by_task_type`）
+- 按状态分布（`by_status`）
 
 ---
 
