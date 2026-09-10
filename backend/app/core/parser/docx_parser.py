@@ -1,30 +1,110 @@
-"""DOCX 解析器。"""
-from docx import Document as DocxDocument
+"""DOCX 解析器实现"""
 
-from app.core.parser.models import ParsedElement
+import logging
+from typing import List
+from docx import Document
+import io
+
+from .base import (
+    BaseParser,
+    ParsedDocument,
+    DocumentElement,
+    ElementPosition,
+)
+
+logger = logging.getLogger(__name__)
 
 
-async def parse(path: str) -> list[ParsedElement]:
-    """解析 docx：段落（Heading N → heading + level；其余 text）+ 表格（HTML）。"""
-    elements: list[ParsedElement] = []
-    d = DocxDocument(path)
-    for para in d.paragraphs:
-        txt = (para.text or "").strip()
-        if not txt:
-            continue
-        style = (para.style.name or "").lower()
-        if style.startswith("heading"):
-            try:
-                lvl = int(style.split()[-1])
-            except ValueError:
-                lvl = 1
-            elements.append(ParsedElement("heading", txt, 1, level=lvl))
-        elif style == "title":
-            elements.append(ParsedElement("heading", txt, 1, level=1))
-        else:
-            elements.append(ParsedElement("text", txt, 1))
-    for table in d.tables:
-        rows = [[c.text for c in row.cells] for row in table.rows]
-        body = "".join("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>" for r in rows)
-        elements.append(ParsedElement("table", f"<table>{body}</table>", 1))
-    return elements
+class DOCXParser(BaseParser):
+    """DOCX 文档解析器
+
+    使用 python-docx 提取内容，支持：
+    - 段落提取
+    - 标题识别
+    - 列表处理
+    """
+
+    async def parse(self, file_data: bytes, doc_id: str) -> ParsedDocument:
+        """
+        解析 DOCX 文档
+
+        Args:
+            file_data: DOCX 文件二进制数据
+            doc_id: 文档 ID
+
+        Returns:
+            ParsedDocument: 解析结果
+        """
+        logger.info(f"Starting DOCX parsing: doc_id={doc_id}")
+
+        # 1. 打开文档
+        doc = Document(io.BytesIO(file_data))
+
+        # 2. 提取元素
+        elements: List[DocumentElement] = []
+        elem_idx = 0
+
+        for para in doc.paragraphs:
+            if not para.text.strip():
+                continue
+
+            element = self._create_paragraph_element(para, elem_idx, doc_id)
+            elements.append(element)
+            elem_idx += 1
+
+        # 3. 提取元数据
+        metadata = self._extract_metadata(file_data)
+        metadata.update({
+            'paragraph_count': len(doc.paragraphs),
+            'core_properties': {
+                'author': doc.core_properties.author or '',
+                'title': doc.core_properties.title or '',
+                'subject': doc.core_properties.subject or '',
+            }
+        })
+
+        logger.info(f"DOCX parsing completed: doc_id={doc_id}, elements={len(elements)}")
+
+        return ParsedDocument(
+            doc_id=doc_id,
+            file_key='',
+            elements=elements,
+            metadata=metadata,
+            structure=None,
+        )
+
+    def _create_paragraph_element(
+        self,
+        para,
+        elem_idx: int,
+        doc_id: str
+    ) -> DocumentElement:
+        """创建段落元素"""
+        # 判断元素类型
+        element_type = self._determine_element_type(para)
+
+        return DocumentElement(
+            element_id=f'{doc_id}-elem-{elem_idx}',
+            element_type=element_type,
+            content=para.text,
+            position=ElementPosition(),  # DOCX 位置信息有限
+            metadata={
+                'style': para.style.name if para.style else '',
+                'alignment': str(para.alignment) if para.alignment else '',
+                'is_heading': element_type == 'heading',
+            }
+        )
+
+    def _determine_element_type(self, para) -> str:
+        """判断段落类型"""
+        style_name = para.style.name if para.style else ''
+
+        # 标题样式判断
+        if 'Heading' in style_name or 'Title' in style_name:
+            return 'heading'
+
+        # 列表判断
+        if para.style and 'List' in style_name:
+            return 'list'
+
+        return 'paragraph'
