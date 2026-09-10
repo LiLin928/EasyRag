@@ -4,8 +4,7 @@ import pytest
 import time
 from datetime import datetime
 
-from app.core.engine.arq_client import enqueue_workflow_task
-from app.core.engine.pg_queue import PGJobQueue
+from app.core.engine.celery_client import enqueue_workflow_task
 from app.db.session import async_session
 from sqlalchemy import select
 from app.models.workflow import WorkflowExecution

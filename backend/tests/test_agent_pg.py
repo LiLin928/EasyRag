@@ -62,7 +62,7 @@ class TestAgentWorkflowTool:
             mock_enqueue.return_value = execution_id
             
             # Import and call enqueue_workflow_task
-            from app.core.engine.arq_client import enqueue_workflow_task
+            from app.core.engine.celery_client import enqueue_workflow_task
             
             result = await enqueue_workflow_task(
                 workflow_id=workflow_id,
@@ -117,7 +117,7 @@ class TestAgentWorkflowTool:
             
             mock_enqueue.return_value = execution_id
             
-            from app.core.engine.arq_client import enqueue_workflow_task
+            from app.core.engine.celery_client import enqueue_workflow_task
             
             await enqueue_workflow_task(
                 workflow_id=workflow_id,

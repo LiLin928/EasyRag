@@ -10,12 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from pydantic import BaseModel, Field
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.exceptions import BizException, ErrorCode
 from app.models.webhook import Webhook, WebhookTriggerLog
 from app.models.workflow import Workflow, WorkflowExecution
 from app.api.response import ok
-from app.core.engine.pg_queue import PGJobQueue
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -219,29 +219,26 @@ async def trigger_webhook(
                 return ok({"status": "filtered", "reason": "Event type mismatch"})
         
         # 触发工作流执行
-        queue = PGJobQueue()
-        job_id = await queue.enqueue(
-            "workflow",
-            {
-                "workflow_id": str(webhook.workflow_id),
-                "trigger_type": "webhook",
-                "inputs": payload.get("data", {}),
-                "webhook_log_id": str(log_entry.id)
-            }
+        from app.core.engine.celery_client import enqueue_workflow_task
+        execution_id = await enqueue_workflow_task(
+            workflow_id=str(webhook.workflow_id),
+            inputs=payload.get("data", {}),
+            trigger="webhook",
+            user_id=None
         )
-        
+
         log_entry.status = "running"
         log_entry.processed_at = datetime.utcnow()
-        
+
         # 更新webhook统计
         webhook.last_triggered_at = datetime.utcnow()
         webhook.trigger_count += 1
-        
+
         await db.commit()
-    
+
     return ok({
         "status": "triggered",
-        "job_id": job_id
+        "execution_id": execution_id
     })
 
 

@@ -1,13 +1,12 @@
 """Saved retrieval test set and case routes."""
 from typing import Any
 
-from app.core.engine.pg_queue import PGJobQueue
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user
 from app.api.response import ok
+from app.core.celery_app import celery_app
 
 from app.schemas.retrieval_testing import (
     RetrievalTestCaseCreate,
@@ -152,8 +151,10 @@ async def start_run(set_id: str, body: RetrievalRunCreate, me=Depends(get_curren
         chunk_metadata=body.chunk_metadata,
     )
     if getattr(run, "_newly_created", False):
+        # 使用 Celery 任务执行检索测试
+        from app.worker.tasks.parse_tasks import execute_retrieval_test
+        execute_retrieval_test.delay(str(run.id))
 
-        await PGJobQueue.enqueue_task('retrieval_test', {"run_id": str(run.id)})
     return ok(service.test_run_output(run))
 
 

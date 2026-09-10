@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter
 
 from app.api.response import ok
-from app.core.engine.pg_queue import PGJobQueue
+from app.core.celery_app import celery_app
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from sqlalchemy import text
@@ -24,27 +24,36 @@ async def health_check():
 @router.get("/workers")
 async def worker_health():
     """Worker 健康状态。
-    
+
     返回队列状态和运行中的 worker 列表。
     """
-    async with async_session() as s:
-        pending = await PGJobQueue.count_pending(s)
-        running = await PGJobQueue.count_running(s)
-        workers = await PGJobQueue.list_workers(s)
-    
+    # 使用 Celery Inspect API 获取 worker 状态
+    inspect = celery_app.control.inspect()
+
+    # 获取活跃任务
+    active_tasks = inspect.active() or {}
+    reserved_tasks = inspect.reserved() or {}
+
+    # 统计任务数
+    pending_count = sum(len(tasks) for tasks in reserved_tasks.values())
+    running_count = sum(len(tasks) for tasks in active_tasks.values())
+
+    # 获取 worker 列表
+    stats = inspect.stats() or {}
+    workers = []
+    for worker_name, worker_stats in stats.items():
+        workers.append({
+            "id": worker_name,
+            "status": "active",
+            "last_heartbeat": datetime.now().isoformat()
+        })
+
     return ok({
         "queue": {
-            "pending": pending,
-            "running": running,
+            "pending": pending_count,
+            "running": running_count,
         },
-        "workers": [
-            {
-                "id": w["worker_id"],
-                "status": "active",
-                "last_heartbeat": w["last_active"].isoformat() if w["last_active"] else None
-            }
-            for w in workers
-        ],
+        "workers": workers,
         "timestamp": datetime.now().isoformat()
     })
 
