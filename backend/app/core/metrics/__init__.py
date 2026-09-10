@@ -7,5 +7,6 @@
 """
 from app.core.metrics.app_metrics import setup_app_metrics
 from app.core.metrics.storage_metrics import StorageMetrics
+from app.core.metrics.business_metrics import BusinessMetrics
 
-__all__ = ["setup_app_metrics", "StorageMetrics"]
+__all__ = ["setup_app_metrics", "StorageMetrics", "BusinessMetrics"]
