@@ -20,6 +20,7 @@ from app.security.init_admin import ensure_admin
 from app.api.v2 import assets, auth, chat, documents, elements, elements_list, feedback, health, knowledge, metadata, parse_tasks, retrieval, retrieval_settings, retrieval_testing, scenes, settings as settings_api, tree
 from app.api.v2 import tools, skills, mcps, agents, workflows, executions, todos, templates, users, audit, webhooks, versions, dead_letter
 from app.logging import setup_logging, new_request_id
+from app.core.metrics import setup_app_metrics
 
 setup_logging()
 _log = structlog.get_logger()
@@ -37,6 +38,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="EasyRAG API", version="0.1.0", lifespan=lifespan)
+
+# 配置应用层指标采集
+setup_app_metrics(app)
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -72,6 +76,31 @@ async def biz_exception_handler(request: Request, exc: BizException):
     将 BizException 转换为 HTTP 200 + 业务错误码的 ApiResponse 结构。
     """
     return JSONResponse(status_code=200, content={"code": exc.code, "message": exc.message, "data": None})
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器。
+
+    捕获所有未处理的异常，记录详细错误日志，并返回统一的错误响应。
+    """
+    import traceback
+    _log.error(
+        "Unhandled exception",
+        error=str(exc),
+        error_type=type(exc).__name__,
+        traceback=traceback.format_exc(),
+        path=request.url.path,
+        method=request.method,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 50001,
+            "message": f"服务器内部错误: {str(exc)}",
+            "data": None
+        }
+    )
 
 
 app.include_router(auth.router, prefix=settings.api_prefix)
