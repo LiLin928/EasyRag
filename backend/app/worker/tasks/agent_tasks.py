@@ -1,4 +1,22 @@
-"""Agent Celery 任务"""
+"""Agent Celery 任务
+
+⚠️ DEPRECATED: 本文件已废弃，将在未来版本移除。
+新的 Agent 执行直接使用 AgentService（app/services/agent_service.py）。
+
+迁移路径：
+- Celery agent_tasks.execute_agent_chat → API 直接调用 AgentService.chat()
+- AgentService 使用 LangGraph create_react_agent
+- 支持 SSE 流式输出
+
+保留本文件仅用于向后兼容。
+"""
+import warnings
+
+warnings.warn(
+    "agent_tasks 模块已废弃，请使用 AgentService",
+    DeprecationWarning,
+    stacklevel=2
+)
 import asyncio
 from typing import Dict, Any, Optional
 from celery.exceptions import MaxRetriesExceededError

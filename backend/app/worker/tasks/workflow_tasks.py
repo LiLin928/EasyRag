@@ -1,4 +1,22 @@
-"""工作流 Celery 任务"""
+"""工作流 Celery 任务
+
+⚠️ DEPRECATED: 本文件已废弃，将在未来版本移除。
+新的工作流执行使用 LangGraph + PGWorker（app/worker/pg_worker.py）。
+
+迁移路径：
+- Celery worker_tasks.execute_workflow → PGWorker._execute_workflow
+- 使用 GraphBuilder 编译工作流定义
+- 节点执行器见 app/core/engine/nodes/basic.py
+
+保留本文件仅用于向后兼容。
+"""
+import warnings
+
+warnings.warn(
+    "workflow_tasks 模块已废弃，请使用 PGWorker 和 LangGraph",
+    DeprecationWarning,
+    stacklevel=2
+)
 import asyncio
 from typing import List, Dict, Any
 from celery import chain, group, chord
