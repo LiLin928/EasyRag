@@ -10,6 +10,7 @@ from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
+from sqlalchemy import select
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.model_config import ModelConfig
@@ -38,6 +39,63 @@ async def build_chat_model(use: str = "qa", **overrides) -> BaseChatModel:
         "max_tokens": int(params["max_tokens"]) if params.get("max_tokens") else None,
     }
     common = {k: v for k, v in common.items() if v is not None}
+    if cfg.prov in ("openai", "dashscope", "vllm", "siliconflow"):
+        return init_chat_model(
+            model_provider="openai",
+            base_url=cfg.url,
+            api_key=_api_key(cfg),
+            **common,
+        )
+    if cfg.prov == "ollama":
+        return init_chat_model(model_provider="ollama", base_url=cfg.url, **common)
+    if cfg.prov == "azure":
+        return init_chat_model(
+            model_provider="azure_openai",
+            azure_endpoint=cfg.url,
+            api_key=_api_key(cfg),
+            **common,
+        )
+    raise BizException(ErrorCode.PARAM_ERROR, f"不支持的 LLM provider: {cfg.prov}")
+
+
+async def build_chat_model_by_name(model_name: str, **overrides) -> BaseChatModel:
+    """根据模型名称构建对话模型。
+
+    从 model_configs 表查找指定名称的模型配置，用于 Agent 等需要指定模型的场景。
+
+    Args:
+        model_name: 模型名称（如 "gpt-4o", "deepseek-v4-flash"）
+        **overrides: 覆盖参数（如 temperature, max_tokens）
+
+    Returns:
+        LangChain BaseChatModel
+
+    Raises:
+        BizException: 模型不存在或未启用
+    """
+    async with async_session() as s:
+        cfg = (await s.execute(
+            select(ModelConfig).where(
+                ModelConfig.name == model_name,
+                ModelConfig.grp == "llm",
+                ModelConfig.enabled == True
+            )
+        )).scalar_one_or_none()
+
+        if not cfg:
+            raise BizException(
+                ErrorCode.NOT_FOUND,
+                f"模型 '{model_name}' 不存在或未启用，请在系统设置中配置"
+            )
+
+    params = {**(cfg.params or {}), **overrides}
+    common = {
+        "model": cfg.name,
+        "temperature": params.get("temp", 0.7),
+        "max_tokens": int(params["max_tokens"]) if params.get("max_tokens") else None,
+    }
+    common = {k: v for k, v in common.items() if v is not None}
+
     if cfg.prov in ("openai", "dashscope", "vllm", "siliconflow"):
         return init_chat_model(
             model_provider="openai",

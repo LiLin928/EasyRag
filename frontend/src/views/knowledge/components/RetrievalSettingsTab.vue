@@ -3,7 +3,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
+import * as settingsApi from '@/api/settings'
 import type { RetrievalSettingsPayload } from '@/types/knowledge'
+import type { ModelDef } from '@/types/settings'
 
 function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -85,22 +87,38 @@ const initialRerankModelId = ref('')
 const saving = ref(false)
 const rebuilding = ref(false)
 
-const modelCatalog: ModelOption[] = [
-  { id: 'model-embedding', name: 'BGE-M3', prov: 'local', use: 'embedding', enabled: true, dim: 1024 },
-  { id: 'model-embedding-1024-b', name: 'Qwen3-Embedding', prov: 'local', use: 'embedding', enabled: true, dim: 1024 },
-  { id: 'model-embedding-768', name: 'MiniLM-768', prov: 'local', use: 'embedding', enabled: true, dim: 768 },
-  { id: 'model-embedding-disabled', name: 'BGE-Base Disabled', prov: 'local', use: 'embedding', enabled: false, dim: 1024 },
-  { id: 'model-rerank', name: 'BGE-Reranker', prov: 'local', use: 'rerank', enabled: true },
-  { id: 'model-rerank-b', name: 'Qwen3-Reranker', prov: 'local', use: 'rerank', enabled: true },
-  { id: 'model-rerank-disabled', name: 'Legacy Reranker', prov: 'local', use: 'rerank', enabled: false }
-]
+// 从系统设置获取的模型列表
+const embedModelsFromSettings = ref<ModelDef[]>([])
+const rerankModelsFromSettings = ref<ModelDef[]>([])
 
-const embeddingModels = computed(() =>
-  modelCatalog.filter((model) => model.use === 'embedding' && model.enabled && model.dim === 1024)
-)
-const rerankModels = computed(() =>
-  modelCatalog.filter((model) => model.use === 'rerank' && model.enabled)
-)
+const embeddingModels = computed(() => {
+  // 使用从系统设置获取的模型列表，过滤启用的且维度为1024的
+  return embedModelsFromSettings.value
+    .filter(m => m.enabled && (m.dim === '1024' || m.dim === 1024))
+    .map(m => ({
+      id: m.id,  // 使用模型的 UUID
+      name: m.name,
+      prov: m.prov || '',
+      use: 'embedding' as const,
+      enabled: m.enabled || false,
+      dim: typeof m.dim === 'string' ? parseInt(m.dim) : (m.dim || 0),
+      def: m.def || false
+    }))
+})
+
+const rerankModels = computed(() => {
+  // 使用从系统设置获取的模型列表，过滤启用的
+  return rerankModelsFromSettings.value
+    .filter(m => m.enabled)
+    .map(m => ({
+      id: m.id,  // 使用模型的 UUID
+      name: m.name,
+      prov: m.prov || '',
+      use: 'rerank' as const,
+      enabled: m.enabled || false,
+      def: m.def || false
+    }))
+})
 
 const numericFields: NumericField[] = [
   { key: 'final_top_k', label: '最终 TopK', min: 1, max: 50, step: 1, integer: true },
@@ -120,8 +138,24 @@ onMounted(() => {
 })
 
 async function load(): Promise<void> {
-  await knowledgeStore.loadRetrievalSettings(props.kbId)
-  hydrate(true)
+  try {
+    // 并行加载检索设置和模型列表
+    const [embedModels, rerankModels] = await Promise.all([
+      knowledgeStore.loadRetrievalSettings(props.kbId).then(() => settingsApi.getModelsByGroup('embed')),
+      settingsApi.getModelsByGroup('rerank')
+    ])
+
+    console.log('[RetrievalSettingsTab] Loaded embed models:', embedModels)
+    console.log('[RetrievalSettingsTab] Loaded rerank models:', rerankModels)
+
+    embedModelsFromSettings.value = embedModels
+    rerankModelsFromSettings.value = rerankModels
+
+    hydrate(true)
+  } catch (error) {
+    console.error('[RetrievalSettingsTab] Failed to load:', error)
+    ElMessage.error('加载检索设置失败')
+  }
 }
 
 function hydrate(updateModels: boolean): void {

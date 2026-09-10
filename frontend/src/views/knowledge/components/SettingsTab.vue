@@ -145,10 +145,21 @@ async function handleSave() {
             <el-option
               v-for="m in embedModels"
               :key="m.name"
-              :label="m.name + ' (' + m.dim + '维)'"
+              :label="m.name + (m.dim ? ' (' + m.dim + '维)' : '') + (m.def ? ' [默认]' : '')"
               :value="m.name"
+              :disabled="!m.enabled"
             />
           </el-select>
+          <el-alert
+            v-if="embedModels.length === 0"
+            type="warning"
+            :closable="false"
+            style="margin-top: 8px"
+          >
+            暂无可用模型，请前往
+            <router-link to="/settings" style="color: #409eff">系统设置</router-link>
+            配置 Embedding 模型
+          </el-alert>
         </el-form-item>
       </div>
 
@@ -196,10 +207,21 @@ async function handleSave() {
             <el-option
               v-for="m in rerankModels"
               :key="m.name"
-              :label="m.name"
+              :label="m.name + (m.def ? ' [默认]' : '')"
               :value="m.name"
+              :disabled="!m.enabled"
             />
           </el-select>
+          <el-alert
+            v-if="form.rerankEnabled && rerankModels.length === 0"
+            type="warning"
+            :closable="false"
+            style="margin-top: 8px"
+          >
+            暂无可用模型，请前往
+            <router-link to="/settings" style="color: #409eff">系统设置</router-link>
+            配置 Rerank 模型
+          </el-alert>
         </el-form-item>
 
         <el-form-item v-if="form.rerankEnabled" label="Rerank TopN">

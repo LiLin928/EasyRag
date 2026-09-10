@@ -4,8 +4,6 @@ import uuid
 from json import JSONDecodeError
 from typing import Literal
 
-from app.core.engine.pg_queue import PGJobQueue
-
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -20,6 +18,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.providers.storage.factory import get_storage
 from app.schemas.knowledge import ReembedRequest
 from app.services import asset_service
+from app.core.celery_app import celery_app
 
 
 router = APIRouter(tags=["assets"])
@@ -111,8 +110,15 @@ async def upload(
 
     storage = get_storage()
     await storage.put(key, data)
-    
-    await PGJobQueue.enqueue_task('parse_document', {"doc_id": doc_id})
+
+    # Submit to Celery queue
+    celery_app.send_task(
+        "app.worker.tasks.parse_tasks.parse_document",  # 完整的任务路径
+        args=[str(document.id), key, str(kbId)],
+        queue="parse",
+        task_id=task_id,
+    )
+
     return ok({"task_id": task_id, "doc_id": doc_id})
 
 

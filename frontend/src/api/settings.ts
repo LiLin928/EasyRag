@@ -9,7 +9,18 @@ export function getModels(): Promise<Record<ModelGroup, ModelDef[]>> {
 }
 
 export function getModelsByGroup(group: ModelGroup): Promise<ModelDef[]> {
-  return request.get('/settings/models?group=' + group)
+  return request.get('/settings/models?group=' + group).then((data: any) => {
+    // API 返回的是 { llm: [], embed: [], rerank: [] }，提取对应分组
+    if (data && typeof data === 'object' && group in data) {
+      return data[group] || []
+    }
+    // 如果直接返回数组，直接使用
+    if (Array.isArray(data)) {
+      return data
+    }
+    console.warn('[getModelsByGroup] Unexpected response format:', data)
+    return []
+  })
 }
 
 export function saveModel(group: ModelGroup, model: ModelDef): Promise<ModelDef> {

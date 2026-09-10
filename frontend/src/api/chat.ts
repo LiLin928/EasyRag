@@ -27,6 +27,12 @@ export function getChatUrl(): string {
   return baseUrl + '/chat'
 }
 
+// 智能体对话 SSE URL
+export function getAgentChatUrl(agentId: string): string {
+  const baseUrl = import.meta.env.VITE_API_BASE || '/api/v2'
+  return baseUrl + '/agents/' + agentId + '/chat'
+}
+
 // ========== 元素详情 ==========
 
 export function getElementDetail(elementId: string): Promise<any> {

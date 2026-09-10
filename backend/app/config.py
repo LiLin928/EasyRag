@@ -50,6 +50,7 @@ class Settings(BaseSettings):
 
     # 对象存储（本地 FS → MinIO）
     storage_type: str = "local"        # local | minio
+    storage_local_dir: str = "uploads"  # 本地存储目录
     # MinIO 配置
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = "minioadmin"

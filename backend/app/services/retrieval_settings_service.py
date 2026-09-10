@@ -248,8 +248,13 @@ def _validate_embedding_model(model: ModelConfig | None) -> ModelConfig:
     if model.grp != "embed":
         raise BizException(ErrorCode.PARAM_ERROR, "Model must be in the embed group")
     dim = (model.params or {}).get("dim")
-    if dim is not None and dim != 1024:
-        raise BizException(ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024")
+    if dim is not None:
+        try:
+            dim_int = int(dim)
+            if dim_int != 1024:
+                raise BizException(ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024")
+        except (TypeError, ValueError):
+            raise BizException(ErrorCode.PARAM_ERROR, "Invalid embedding model dimension")
     return model
 
 

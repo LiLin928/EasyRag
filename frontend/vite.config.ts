@@ -24,13 +24,26 @@ export default defineConfig({
     }
   },
   server: {
-    port: 3000
-    // proxy 已禁用，使用 Mock 模式
-    // proxy: {
-    //   '/api': {
-    //     target: 'http://localhost:8080',
-    //     changeOrigin: true
-    //   }
-    // }
+    port: 3000,
+    // 代理 API 请求到后端
+    proxy: {
+      '/api/v2': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path) => path,
+        configure: (proxy, options) => {
+          // 调试代理
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('Sending Request to the Target:', req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('Received Response from the Target:', proxyRes.statusCode, req.url);
+          });
+        }
+      }
+    }
   }
 })

@@ -107,7 +107,7 @@ watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], 
 // 加载所需数据
 onMounted(async () => {
   await toolStore.loadTools()
-  await knowledgeStore.loadDocuments('kb1', 1, 100) // 加载所有文档
+  // 知识库文档已在父组件 AgentConfigDrawer 中加载
   await workflowListStore.loadWorkflows()
   await mcpStore.loadMcps()
   await skillStore.loadSkills()

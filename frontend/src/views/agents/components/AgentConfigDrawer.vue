@@ -1,11 +1,12 @@
 ﻿<script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useToolStore } from '@/stores/tool'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useWorkflowListStore } from '@/stores/workflow'
 import { useMcpStore } from '@/stores/mcp'
 import { useSkillStore } from '@/stores/skill'
+import { useSettingsStore } from '@/stores/settings'
 import AgentCapabilityPicker from './AgentCapabilityPicker.vue'
 import type { Agent } from '@/types/agent'
 
@@ -28,11 +29,12 @@ const knowledgeStore = useKnowledgeStore()
 const workflowListStore = useWorkflowListStore()
 const mcpStore = useMcpStore()
 const skillStore = useSkillStore()
+const settingsStore = useSettingsStore()
 
 const formData = ref({
   name: '',
   desc: '',
-  model: 'gpt-4o',
+  model: '',
   prompt: '',
   temp: 0.7,
   maxtok: '2048',
@@ -44,16 +46,19 @@ const formData = ref({
   enabled: true
 })
 
-const modelOptions = [
-  { label: 'GPT-4o', value: 'gpt-4o' },
-  { label: 'GPT-4o-mini', value: 'gpt-4o-mini' },
-  { label: 'GPT-4-turbo', value: 'gpt-4-turbo' },
-  { label: 'GPT-3.5-turbo', value: 'gpt-3.5-turbo' }
-]
+// 从系统设置获取 LLM 模型列表
+const modelOptions = computed(() => {
+  const llmModels = settingsStore.models.llm || []
+  return llmModels.map(m => ({
+    label: m.name,
+    value: m.name,
+    disabled: !m.enabled
+  }))
+})
 
-watch(() => props.visible, (visible) => {
+watch(() => props.visible, async (visible) => {
   if (visible) {
-    loadCandidateData()
+    await loadCandidateData()
     if (props.data) {
       formData.value = {
         name: props.data.name,
@@ -76,18 +81,28 @@ watch(() => props.visible, (visible) => {
 })
 
 async function loadCandidateData() {
-  await toolStore.loadTools()
-  await knowledgeStore.loadDocuments('kb1', 1, 100)
-  await workflowListStore.loadWorkflows()
-  await mcpStore.loadMcps()
-  await skillStore.loadSkills()
+  await Promise.all([
+    settingsStore.loadModels(),
+    toolStore.loadTools(),
+    knowledgeStore.loadKbList(),
+    workflowListStore.loadWorkflows(),
+    mcpStore.loadMcps(),
+    skillStore.loadSkills()
+  ])
+  // 如果有知识库，加载第一个知识库的文档
+  const kbList = knowledgeStore.kbList
+  if (kbList.length > 0) {
+    await knowledgeStore.loadDocuments(kbList[0].id, 1, 100)
+  }
 }
 
 function resetForm() {
+  // 获取默认 LLM 模型
+  const defaultModel = settingsStore.getDefaultModel('llm')
   formData.value = {
     name: '',
     desc: '',
-    model: 'gpt-4o',
+    model: defaultModel?.name || '',
     prompt: '',
     temp: 0.7,
     maxtok: '2048',

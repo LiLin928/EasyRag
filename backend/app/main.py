@@ -2,6 +2,10 @@
 
 负责创建应用、注册中间件与路由、配置异常处理器与生命周期。
 """
+# 在最顶部加载 .env 文件，确保在导入其他模块之前
+from dotenv import load_dotenv
+load_dotenv()
+
 import structlog
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request

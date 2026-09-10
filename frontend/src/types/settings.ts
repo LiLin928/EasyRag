@@ -5,16 +5,18 @@ export type ModelGroup = 'llm' | 'embed' | 'rerank'
 
 // 模型定义
 export interface ModelDef {
+  id?: string                               // 模型 UUID（后端返回）
   name: string                              // 模型名称
   prov: string                              // 供应商：DashScope / OpenAI 兼容 / 本地 Ollama / Azure OpenAI / 自建 vLLM
   use: string                               // 用途：按分组动态选项
   temp?: number                             // 温度（LLM 组）
   ctx?: string                              // 上下文长度
-  dim?: string                              // 维度（Embedding 组）
+  dim?: string | number                     // 维度（Embedding 组）
   def?: boolean                             // 是否默认（同组单选）
+  enabled?: boolean                         // 是否启用
   url?: string                              // API 地址
   key?: string                              // 密钥（掩码显示）
-  params: Record<string, string>            // 动态参数（top_p/max_tokens 等）
+  params?: Record<string, string | number>  // 动态参数（top_p/max_tokens 等）
 }
 
 // 场景预设

@@ -13,14 +13,17 @@ async def get_checkpointer():
     global _checkpointer
     if _checkpointer is not None:
         return _checkpointer
-    if settings.env == "production":
-        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-        cp = AsyncPostgresSaver.from_conn_string(settings.database_url)
-        await cp.setup()
-        _checkpointer = cp
-    else:
-        from langgraph.checkpoint.memory import MemorySaver
-        _checkpointer = MemorySaver()
+
+    # 始终使用 PostgresSaver 以支持历史持久化
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    import logging
+    logger = logging.getLogger(__name__)
+
+    logger.info("[Checkpointer] Initializing PostgresSaver for persistent history...")
+    cp = AsyncPostgresSaver.from_conn_string(settings.database_url)
+    await cp.setup()
+    _checkpointer = cp
+    logger.info("[Checkpointer] PostgresSaver initialized successfully")
     return _checkpointer
  
 async def init_checkpointer_for_worker():

@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
 
     question: str
     conversation_id: str | None = None
+    kb_ids: list[str] = []
     doc_ids: list[str] = []
     scene: str = "general"
     top_k: int | None = None

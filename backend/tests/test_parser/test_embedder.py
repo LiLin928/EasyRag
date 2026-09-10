@@ -20,11 +20,13 @@ async def test_embed_empty_chunks(embedder):
 
 @pytest.mark.asyncio
 async def test_embed_requires_kb_id(embedder):
-    """测试向量化处理"""
-    chunks = [{'content': 'test', 'doc_id': 'test-doc'}]
-    # 简化版本暂时不验证 kb_id
-    result = await embedder.embed(chunks, 'test-kb')
-    assert result == len(chunks)
+    """测试向量化处理需要有效的 kb_id"""
+    import uuid
+    chunks = [{'content': 'test', 'doc_id': 'test-doc', 'id': str(uuid.uuid4())}]
+
+    # 无效的 kb_id 应该抛出异常
+    with pytest.raises(Exception):  # BizException
+        await embedder.embed(chunks, 'test-kb')
 
 
 @pytest.mark.asyncio

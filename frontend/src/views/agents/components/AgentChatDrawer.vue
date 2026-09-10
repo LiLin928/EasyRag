@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { ref, nextTick, onUnmounted } from 'vue'
 import { useSSE } from '@/composables/useSSE'
-import { getChatUrl } from '@/api/chat'
+import { getAgentChatUrl } from '@/api/chat'
 import type { Agent } from '@/types/agent'
 import type { ChatMessage } from '@/types/chat'
 import { renderMarkdown } from '@/composables/useMarkdown'
@@ -59,16 +59,24 @@ async function sendMessage() {
 
   await scrollToBottom()
 
-  // 使用 SSE 发送消息
-  await connect(getChatUrl(), {
+  // 使用智能体专用的 SSE API
+  const agentChatUrl = getAgentChatUrl(props.agent.id)
+  await connect(agentChatUrl, {
     body: {
-      
       question: userContent
     },
     onEvent: (event, data) => {
       handleSSEEvent(assistantMessage, event, data)
     }
   })
+}
+
+// 键盘事件处理
+function handleKeyDown(e: Event | KeyboardEvent) {
+  if ((e as KeyboardEvent).key === 'Enter' && !(e as KeyboardEvent).shiftKey) {
+    e.preventDefault()
+    sendMessage()
+  }
 }
 
 // 处理 SSE 事件
@@ -203,16 +211,16 @@ onUnmounted(() => {
             v-model="inputMessage"
             type="textarea"
             :rows="3"
-            placeholder="输入消息..."
+            placeholder="输入消息，按 Enter 发送，Shift + Enter 换行"
             :disabled="isStreaming"
-            @keydown.enter.ctrl="sendMessage"
+            @keydown="handleKeyDown"
           />
           <el-button
             type="primary"
             :disabled="!inputMessage.trim() || isStreaming"
             @click="sendMessage"
           >
-            发送 (Ctrl+Enter)
+            发送
           </el-button>
         </div>
       </div>

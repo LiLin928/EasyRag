@@ -143,10 +143,12 @@ export function useSSE() {
       signal: options.signal || abortController.value.signal,
       onmessage(event) {
         if (options.onEvent) {
+          console.log('[SSE] Received event:', event.event, event.data)
           try {
             const data = JSON.parse(event.data)
             options.onEvent(event.event || 'message', data)
           } catch (e) {
+            console.error('[SSE] Failed to parse data:', e)
             options.onEvent(event.event || 'message', event.data)
           }
         }

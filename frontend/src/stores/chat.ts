@@ -172,13 +172,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function handleSSEEvent(msgId: string, type: string, data: any) {
-    const msg = messages.value.find(m => m.id === msgId)
-    if (!msg) return
+    console.log('[Chat] SSE event:', type, data)
+
+    // 使用索引查找，确保响应式更新
+    const msgIndex = messages.value.findIndex(m => m.id === msgId)
+    if (msgIndex === -1) {
+      console.warn('[Chat] Message not found:', msgId)
+      return
+    }
 
     switch (type) {
       case 'phase':
         currentPhase.value = data.phase
-        msg.phase = data.phase
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          phase: data.phase
+        }
+        console.log('[Chat] Phase changed to:', data.phase)
         break
 
       case 'navigation':
@@ -187,27 +197,45 @@ export const useChatStore = defineStore('chat', () => {
 
       case 'references':
         references.value = data.refs || []
-        msg.references = references.value
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          references: references.value
+        }
         break
 
       case 'token':
         streamBuffer.value += data.token
-        msg.content = streamBuffer.value
+        // 创建新对象替换，强制Vue响应式更新
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          content: streamBuffer.value
+        }
+        console.log('[Chat] Token received, buffer length:', streamBuffer.value.length)
         break
 
       case 'done':
-        msg.usage = data.usage
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          usage: data.usage
+        }
         isStreaming.value = false
         currentPhase.value = 'idle'
+        console.log('[Chat] Done, final content length:', messages.value[msgIndex].content.length)
         break
 
       case 'trace':
         traceInfo.value = data
-        msg.trace = data
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          trace: data
+        }
         break
 
       case 'error':
-        msg.content = '错误：' + (data.message || '未知错误')
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          content: '错误：' + (data.message || '未知错误')
+        }
         isStreaming.value = false
         currentPhase.value = 'idle'
         break

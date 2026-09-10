@@ -19,6 +19,7 @@ class ModelDef(BaseModel):
     ctx: str | None = None
     dim: str | None = None
     is_default: bool = Field(default=False, alias="def")
+    enabled: bool = True
     params: dict = {}
 
 
@@ -39,6 +40,8 @@ class ModelOut(BaseModel):
 class ModelResponse(ModelDef):
     """模型配置响应体（对齐前端 ModelDef，key 掩码显示）。"""
 
+    id: str = ""  # 模型的 UUID
+
     @classmethod
     def from_model(cls, m) -> "ModelResponse":
         params = dict(m.params or {})
@@ -47,9 +50,11 @@ class ModelResponse(ModelDef):
         dim = params.pop("dim", None)
         key_masked = "sk-****" if m.api_key_enc else None
         return cls(
+            id=str(m.id),  # 返回模型的 UUID
             name=m.name, prov=m.prov, use=m.use, url=m.url,
             temp=temp, ctx=ctx, dim=dim,
             is_default=m.is_default,
+            enabled=m.enabled,
             key=key_masked, params=params,
         )
 
