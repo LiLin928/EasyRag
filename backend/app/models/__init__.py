@@ -14,6 +14,7 @@ from app.models.retrieval_testing import (
     RetrievalTestSet,
 )
 from app.models.conversation import Conversation, Feedback, Message
+from app.models.dead_letter import DeadLetterTaskModel
 from app.models.tool import Tool
 from app.models.skill import Skill
 from app.models.mcp import Mcp
@@ -46,6 +47,7 @@ __all__ = [
     "Conversation",
     "Message",
     "Feedback",
+    "DeadLetterTaskModel",
     "Tool",
     "Skill",
     "Mcp",

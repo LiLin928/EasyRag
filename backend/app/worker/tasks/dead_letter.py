@@ -84,11 +84,22 @@ class DeadLetterQueue:
         # 1. 记录到数据库
         try:
             async with async_session() as session:
-                # TODO: 创建 dead_letter_tasks 表
-                # from app.models.dead_letter import DeadLetterTaskModel
-                # session.add(DeadLetterTaskModel(**dl_task.to_dict()))
-                # await session.commit()
-                pass
+                from app.models.dead_letter import DeadLetterTaskModel
+
+                db_task = DeadLetterTaskModel(
+                    task_id=task_id,
+                    task_name=task_name,
+                    args=json.dumps(args, default=str),
+                    kwargs=json.dumps(kwargs, default=str),
+                    exception=str(exception),
+                    traceback=traceback_str,
+                    retry_count=retry_count,
+                    max_retries=max_retries,
+                    status="pending",
+                )
+                session.add(db_task)
+                await session.commit()
+                logger.info(f"DLQ task saved to DB: {task_id}")
         except Exception as e:
             logger.error(f"Failed to save DLQ task to DB: {e}")
         
