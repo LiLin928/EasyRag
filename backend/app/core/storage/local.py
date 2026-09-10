@@ -246,3 +246,16 @@ class LocalStorage:
         if metadata is None:
             raise FileNotFoundError(f"文件不存在: {key}")
         return metadata["size"]
+
+    # 向后兼容别名（ObjectStorage 接口）
+    async def put(self, key: str, data: bytes) -> None:
+        """向后兼容：调用 upload 方法。"""
+        await self.upload(key, data)
+
+    async def get(self, key: str) -> bytes:
+        """向后兼容：调用 download 方法。"""
+        return await self.download(key)
+
+    async def presigned_url(self, key: str, expires: int = 3600) -> str:
+        """向后兼容：调用 get_presigned_url 方法。"""
+        return await self.get_presigned_url(key, expires)
