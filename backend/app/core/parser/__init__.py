@@ -8,7 +8,7 @@ from .base import (
     TreeNode,
     BaseParser,
 )
-# from .dispatcher import DocumentDispatcher  # TODO: 实现 DocumentDispatcher 类后启用
+from .dispatcher import DocumentDispatcher
 
 __all__ = [
     "ParsedDocument",
@@ -17,5 +17,5 @@ __all__ = [
     "DocumentTree",
     "TreeNode",
     "BaseParser",
-    # "DocumentDispatcher",  # TODO: 实现 DocumentDispatcher 类后启用
+    "DocumentDispatcher",
 ]
