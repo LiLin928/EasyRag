@@ -18,7 +18,16 @@ async def execute_tool(tool_id: str, args: dict) -> dict:
         raise BizException(ErrorCode.NOT_FOUND, "工具不存在")
     if not t.enabled:
         raise BizException(ErrorCode.FORBIDDEN, "工具未启用")
-    return await execute(t, args or {})
+    result = await execute(t, args or {})
+    # 将 ToolExecutionResult 转换为字典，并映射字段名以保持 API 兼容性
+    return {
+        "success": result.success,
+        "data": result.data,
+        "error": result.error,
+        "duration": result.duration_ms,  # 映射 duration_ms -> duration
+        "status_code": result.status_code,
+        "cached": result.cached,
+    }
 
 
 async def get_tool(tool_id: str) -> Tool | None:
