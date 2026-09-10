@@ -266,39 +266,32 @@ class PGWorker:
         """Execute retrieval test task."""
         task_id = job.get("task_id")
         task_data = job.get("task_data", {})
-        
+
         try:
-            kb_id = task_data.get("kb_id")
-            query = task_data.get("query")
-            top_k = task_data.get("top_k", 5)
-            
-            await publish(task_id, "task_start", {"task_type": PGJobQueue.TASK_RETRIEVAL_TEST})
-            
-            # TODO: Implement actual retrieval test logic
-            # For now, simulate processing
-            await asyncio.sleep(0.5)
-            
-            result = {
-                "kb_id": kb_id,
-                "query": query,
-                "top_k": top_k,
-                "results": [],
-                "status": "completed"
-            }
-            
+            run_id = task_data.get("run_id")
+            if not run_id:
+                raise ValueError("run_id is required for retrieval test")
+
+            await publish(task_id, "task_start", {"task_type": PGJobQueue.TASK_RETRIEVAL_TEST, "run_id": run_id})
+
+            # Execute the retrieval test run
+            from app.services.retrieval_test_service import execute_run
+            await execute_run(run_id)
+
             async with async_session() as session:
                 await PGJobQueue.complete_generic(
-                    session, task_id, "completed", result=result
+                    session, task_id, "completed", result={"run_id": run_id, "status": "completed"}
                 )
-            
-            await publish(task_id, "task_complete", {"result": result})
-            
+
+            await publish(task_id, "task_complete", {"run_id": run_id})
+
         except Exception as e:
+            error_msg = str(e)
             async with async_session() as session:
                 await PGJobQueue.complete_generic(
-                    session, task_id, "failed", error=str(e)
+                    session, task_id, "failed", error=error_msg
                 )
-            await publish(task_id, "task_error", {"error": str(e)})
+            await publish(task_id, "task_error", {"error": error_msg})
             raise
     
     async def _execute_generic_task(self, job: dict) -> None:

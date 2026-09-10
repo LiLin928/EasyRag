@@ -20,15 +20,17 @@
 - **建议**: 这是 Plan 3 的核心功能，需要优先实现
 - **预计工作量**: 中等
 
-### 2. Embedding 服务
+### 2. Embedding 服务 ✅ 已完成
 - **文件**: `backend/app/core/parser/embedder.py`
 - **位置**: 行 64, 72, 78
-- **问题描述**: Embedder 类只有骨架，关键方法未实现
-  - `_get_embeddings_model`: 从知识库配置获取 Embedding 模型
-  - `_embed_batch`: 批量向量化文本
-  - `_update_embeddings`: 更新数据库 embedding 字段
-- **建议**: 需要连接 LangChain Embeddings API 和数据库更新逻辑
-- **预计工作量**: 中等
+- **问题描述**: ~~Embedder 类只有骨架，关键方法未实现~~
+- **实现状态**: 已实现完整功能
+  - ✅ `_get_embeddings_model`: 从知识库配置获取 Embedding 模型
+  - ✅ `_embed_batch`: 批量向量化文本
+  - ✅ `_update_embeddings`: 更新数据库 embedding 字段
+  - ✅ 完整的单元测试覆盖
+- **完成日期**: 2026-09-10
+- **Commit**: 6790465
 
 ### 3. Agent 服务调用
 - **文件**: `backend/app/worker/tasks/agent_tasks.py`
@@ -54,12 +56,16 @@
 
 ## 🟡 中优先级（辅助功能未实现）
 
-### 5. Webhook 认证
+### 5. Webhook 认证 ✅ 已完成
 - **文件**: `backend/app/api/v2/webhooks.py`
 - **位置**: 行 81
-- **问题描述**: 创建 webhook 端点缺少 JWT 认证依赖
-- **建议**: 添加 `current_user: User = Depends(get_current_user)` 认证
-- **预计工作量**: 低
+- **问题描述**: ~~创建 webhook 端点缺少 JWT 认证依赖~~
+- **实现状态**: 已实现完整功能
+  - ✅ 添加 `current_user = Depends(get_current_user)` 认证
+  - ✅ 验证用户权限：只有工作流所有者才能创建 webhook
+  - ✅ list_webhooks 端点也添加了认证和用户过滤
+  - ✅ 防止越权访问
+- **完成日期**: 2026-09-10
 
 ### 6. 死信队列处理
 - **文件**: `backend/app/worker/tasks/dead_letter.py`
@@ -73,11 +79,16 @@
 - **建议**: 错误处理重要但非核心流程，可在 Plan 3 后完善
 - **预计工作量**: 中等
 
-### 7. 检索测试
-- **文件**: `backend/app/worker/tasks/parse_tasks.py`
-- **位置**: 行 201
-- **问题描述**: 检索测试逻辑未实现
-- **建议**: 这是 Plan 4 检索功能的一部分，需要配合检索设置实现
+### 7. 检索测试 ✅ 已完成
+- **文件**: `backend/app/worker/tasks/parse_tasks.py`（已废弃）→ `backend/app/worker/pg_worker.py`
+- **位置**: 行 201（已废弃）
+- **问题描述**: ~~检索测试逻辑未实现~~
+- **实现状态**: 已实现完整功能
+  - ✅ Worker 任务 `_execute_retrieval_test` 已实现
+  - ✅ 调用 `retrieval_test_service.execute_run` 执行测试
+  - ✅ 支持异步任务队列处理
+  - ✅ 完整的错误处理和状态更新
+- **完成日期**: 2026-09-10
 - **预计工作量**: 中等
 
 ---

@@ -78,32 +78,36 @@ def verify_webhook_signature(payload: bytes, secret: str, signature: str, versio
 async def create_webhook(
     data: WebhookCreate,
     db: AsyncSession = Depends(get_db),
-    # current_user: User = Depends(get_current_user)  # TODO: 添加认证
+    current_user = Depends(get_current_user)
 ):
     """创建Webhook触发器。"""
-    # 验证工作流存在
+    # 验证工作流存在且用户有权访问
     workflow = await db.get(Workflow, data.workflow_id)
     if not workflow:
         raise BizException(ErrorCode.NOT_FOUND, "Workflow not found")
-    
+
+    # 验证用户权限：只有工作流所有者才能创建 webhook
+    if workflow.user_id != current_user.id:
+        raise BizException(ErrorCode.FORBIDDEN, "无权访问该工作流")
+
     # 生成随机secret
     import secrets
     webhook_secret = secrets.token_hex(32)
-    
+
     webhook = Webhook(
         workflow_id=data.workflow_id,
-        user_id=workflow.user_id,  # 使用工作流所有者的用户ID
+        user_id=current_user.id,
         name=data.name,
         description=data.description,
         secret=webhook_secret,
         filters=data.filters,
         rate_limit_per_minute=data.rate_limit_per_minute
     )
-    
+
     db.add(webhook)
     await db.commit()
     await db.refresh(webhook)
-    
+
     return ok({
         "webhook": {
             "id": str(webhook.id),
@@ -120,16 +124,17 @@ async def create_webhook(
 @router.get("", response_model=dict)
 async def list_webhooks(
     workflow_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """列出Webhook触发器。"""
-    query = select(Webhook)
+    query = select(Webhook).where(Webhook.user_id == current_user.id)
     if workflow_id:
         query = query.where(Webhook.workflow_id == workflow_id)
-    
+
     result = await db.execute(query)
     webhooks = result.scalars().all()
-    
+
     return ok({
         "webhooks": [
             {
