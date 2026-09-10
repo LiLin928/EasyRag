@@ -1,7 +1,7 @@
 # EasyRAG 后端架构文档
 
 > 更新日期: 2026-09-10
-> 版本: v2.0 (Celery-only)
+> 版本: v2.1 (Celery + Enhanced Infrastructure)
 
 ---
 
@@ -61,12 +61,14 @@ EasyRAG 后端采用 **Celery + Redis + PostgreSQL** 的异步任务处理架构
 
 ### 队列分类
 
-| 队列名 | 用途 | Worker 文件 | 主要任务 |
-|--------|------|-------------|----------|
-| `parse` | 文档解析 | `parse_tasks.py` | `parse_document` |
-| `workflow` | 工作流执行 | `workflow_tasks.py` | `execute_workflow` |
-| `agent` | Agent 对话 | `agent_tasks.py` | `execute_agent_chat` |
-| `default` | 其他任务 | `parse_tasks.py` | `execute_retrieval_test` |
+| 队列名 | 用途 | Worker 文件 | 主要任务 | 优先级 |
+|--------|------|-------------|----------|--------|
+| `high` | 高优先级任务 | `workflow_tasks.py` | `workflow.urgent` | 最高 |
+| `default` | 常规任务 | `parse_tasks.py` | `execute_retrieval_test` | 中等 |
+| `low` | 低优先级任务 | `parse_tasks.py` | `cleanup.*`, `retrieval_test.*` | 低 |
+| `parse` | 文档解析 | `parse_tasks.py` | `parse_document` | 业务队列 |
+| `workflow` | 工作流执行 | `workflow_tasks.py` | `execute_workflow` | 业务队列 |
+| `agent` | Agent 对话 | `agent_tasks.py` | `execute_agent_chat` | 业务队列 |
 
 ### 任务配置
 
@@ -76,8 +78,45 @@ task_routes = {
     "parse.*": {"queue": "parse"},
     "workflow.*": {"queue": "workflow"},
     "agent.*": {"queue": "agent"},
+    "workflow.urgent": {"queue": "high"},
+    "cleanup.*": {"queue": "low"},
+    "retrieval_test.*": {"queue": "low"},
 }
 ```
+
+### 优先级队列
+
+Celery 支持 0-9 的优先级范围（9 最高），通过 `priority` 参数指定：
+
+```python
+# 提交高优先级任务
+execution_id = await enqueue_workflow_task(
+    workflow_id=str(workflow_id),
+    inputs={"param": "value"},
+    trigger="manual",
+    user_id=str(user_id),
+    priority=9  # 高优先级（>= 7 使用 high 队列）
+)
+
+# 提交低优先级任务
+execution_id = await enqueue_workflow_task(
+    workflow_id=str(workflow_id),
+    inputs={},
+    trigger="manual",
+    user_id=None,
+    priority=1  # 低优先级（< 3 使用 low 队列）
+)
+```
+
+**优先级映射规则：**
+- `priority >= 7` → `high` 队列（紧急任务）
+- `priority >= 3` → 业务队列（`workflow`/`parse`/`agent`）
+- `priority < 3` → `low` 队列（后台清理等）
+
+**验证与错误处理：**
+- 优先级参数自动验证（必须在 0-9 范围内）
+- 数据库事务与任务提交原子性保证
+- 任务提交失败时自动回滚
 
 ---
 
@@ -658,9 +697,403 @@ celery -A app.core.celery_app worker -l debug
 
 ---
 
+## Tracing 系统
+
+### 嵌套 Span 支持
+
+EasyRAG 支持嵌套的 span 追踪，自动管理父子关系，适用于复杂的调用链追踪。
+
+#### 基本用法
+
+```python
+from app.providers.trace.span_manager import traced_span
+
+async def chat(self, agent_id: str, question: str, user_id: str):
+    """Agent 对话。"""
+    with traced_span("agent.chat", attributes={"agent_id": agent_id, "user_id": user_id}):
+        # 加载 Agent 配置
+        with traced_span("agent.load_config"):
+            agent = await self._load_agent(agent_id)
+
+        # 构建 React Agent
+        with traced_span("agent.build_react"):
+            react = await self._build_react_agent(agent)
+
+        # 执行对话
+        with traced_span("agent.execute"):
+            async for event in react.astream_events(...):
+                yield event
+```
+
+#### 特性
+
+- **自动管理父子关系**：嵌套的 span 自动建立父子关系
+- **协程安全**：使用 `contextvars` 保证异步环境下的正确性
+- **多后端支持**：支持 Langfuse 和 LangSmith
+- **性能追踪**：自动记录 span 持续时间
+- **多层嵌套**：支持任意深度的 span 嵌套
+
+#### Span 上下文
+
+```python
+@dataclass
+class SpanContext:
+    """Span 上下文。"""
+    trace_id: Optional[str] = None
+    parent_span_id: Optional[str] = None
+    current_span_id: Optional[str] = None
+    depth: int = 0
+    spans: list = field(default_factory=list)
+```
+
+---
+
+## SSE 连接管理
+
+### 连接追踪与清理
+
+SSE（Server-Sent Events）连接管理器自动追踪活跃连接并清理过期连接。
+
+#### 连接生命周期
+
+```
+客户端建立 SSE 连接
+  ↓
+注册连接（connection_id + stream_key）
+  ↓
+更新活动时间（每次事件）
+  ↓
+连接关闭或超时
+  ↓
+注销连接
+```
+
+#### 配置
+
+```python
+# 默认超时时间：5 分钟无活动
+SSEConnectionManager(timeout_seconds=300)
+```
+
+#### 使用示例
+
+```python
+from app.sse.manager import get_sse_manager
+
+manager = get_sse_manager()
+
+# 注册连接
+await manager.register(
+    connection_id=str(uuid.uuid4()),
+    stream_key=f"workflow:{execution_id}",
+    client_ip=request.client.host
+)
+
+# 更新活动时间
+await manager.update_activity(connection_id)
+
+# 注销连接
+await manager.unregister(connection_id)
+```
+
+#### 定时清理
+
+Celery Beat 每 5 分钟自动清理过期连接：
+
+```python
+# Celery 配置
+celery_app.conf.beat_schedule = {
+    "cleanup-sse": {
+        "task": "sse.cleanup_expired",
+        "schedule": crontab(minute="*/5"),
+    },
+}
+```
+
+#### 统计信息
+
+```python
+stats = await manager.get_stats()
+# 返回：
+{
+    "total_connections": 10,
+    "by_stream": {
+        "workflow:xxx": 5,
+        "agent:yyy": 3,
+        "parse:zzz": 2
+    },
+    "oldest_connection": 1634567890.123
+}
+```
+
+---
+
+## 工具执行器
+
+### 结构化返回结果
+
+工具执行器返回结构化的执行结果，包含详细的错误信息和统计。
+
+#### ToolExecutionResult
+
+```python
+@dataclass
+class ToolExecutionResult:
+    """工具执行结果。"""
+    success: bool                    # 是否成功
+    data: Optional[dict]            # 返回数据
+    error: Optional[str]            # 错误信息
+    duration_ms: float              # 执行时长（毫秒）
+    status_code: Optional[int]      # HTTP 状态码
+    cached: bool                    # 是否来自缓存
+```
+
+#### 执行示例
+
+```python
+from app.core.tools.executor import execute
+
+result = await execute(
+    tool=http_tool,
+    args={"url": "https://api.example.com/data"},
+    timeout=30,  # 超时时间（秒）
+    cache_key="tool:123"  # 可选，启用缓存
+)
+
+if result.success:
+    print(f"执行成功，耗时 {result.duration_ms}ms")
+    print(f"返回数据：{result.data}")
+else:
+    print(f"执行失败：{result.error}")
+```
+
+#### 支持的工具类型
+
+| 类型 | 说明 | 特性 |
+|------|------|------|
+| HTTP | HTTP 请求工具 | 超时控制、认证处理、错误分类 |
+| Python | Python 代码工具 | 沙箱执行、降级执行 |
+| 内置 | 内置工具 | 直接调用、类型安全 |
+
+#### 错误处理
+
+- **HTTP 工具**：区分成功、超时、请求错误、认证失败
+- **Python 工具**：区分无代码配置、执行错误、沙箱不可用
+- **内置工具**：区分工具不存在、执行错误
+
+---
+
+## 沙箱客户端
+
+### 自动重试机制
+
+OpenSandbox 客户端支持自动重试和指数退避，提高容错能力。
+
+#### 配置
+
+```python
+client = OpenSandboxClient(
+    base_url="http://192.168.137.13:8090",
+    timeout=30,
+    max_retries=3  # 最大重试次数
+)
+```
+
+#### 重试装饰器
+
+```python
+@with_retry(max_retries=3, backoff_factor=2.0)
+async def create_sandbox(self, image: str, command: list[str]) -> SandboxInfo:
+    # 创建沙箱
+    ...
+```
+
+#### 指数退避
+
+重试间隔按指数增长：`wait_time = backoff_factor ** attempt`
+
+- 第 1 次重试：等待 2 秒
+- 第 2 次重试：等待 4 秒
+- 第 3 次重试：等待 8 秒
+
+#### 可重试的错误
+
+- `httpx.RequestError` - 连接错误
+- `httpx.HTTPStatusError` - HTTP 错误（仅 5xx）
+
+**注意**：4xx 错误不会重试，直接抛出异常。
+
+---
+
+## MinIO 存储
+
+### 错误分类
+
+MinIO 存储提供详细的错误分类，便于错误处理和日志分析。
+
+#### 错误类型
+
+```python
+class MinioStorageError(Exception):
+    """MinIO 存储错误基类。"""
+    
+class MinioConnectionError(MinioStorageError):
+    """MinIO 连接错误。"""
+    
+class MinioNotFoundError(MinioStorageError):
+    """MinIO 对象不存在错误。"""
+    
+class MinioPermissionError(MinioStorageError):
+    """MinIO 权限错误。"""
+```
+
+#### 错误信息
+
+每个错误都包含：
+- 错误消息
+- 操作类型（`upload`/`download`/`delete` 等）
+- 对象键（可选）
+
+```python
+try:
+    await storage.upload("test.txt", b"content")
+except MinioPermissionError as e:
+    print(f"权限错误 [{e.operation}]: {e.message}")
+    print(f"对象键: {e.key}")
+```
+
+### 存储接口
+
+完整的存储接口定义，支持本地文件系统和 MinIO 对象存储。
+
+#### 接口方法
+
+| 方法 | 说明 | 参数 |
+|------|------|------|
+| `upload` | 上传文件 | key, content, content_type?, metadata? |
+| `download` | 下载文件 | key |
+| `delete` | 删除文件 | key |
+| `exists` | 检查文件是否存在 | key |
+| `get_metadata` | 获取文件元数据 | key |
+| `list_objects` | 列出文件 | prefix?, recursive? |
+| `copy` | 复制文件 | source_key, dest_key |
+| `get_presigned_url` | 获取预签名 URL | key, expires? |
+| `get_size` | 获取文件大小 | key |
+
+#### 元数据结构
+
+```python
+{
+    "size": 1024,                      # 文件大小（字节）
+    "content_type": "text/plain",      # 内容类型
+    "last_modified": 1634567890.123,   # 最后修改时间
+    "etag": "abc123",                  # ETag
+    "metadata": {}                     # 自定义元数据
+}
+```
+
+#### 示例
+
+```python
+from app.core.storage import get_storage
+
+storage = get_storage()
+
+# 上传文件
+url = await storage.upload(
+    key="documents/report.pdf",
+    content=file_bytes,
+    content_type="application/pdf",
+    metadata={"author": "admin"}
+)
+
+# 获取元数据
+metadata = await storage.get_metadata("documents/report.pdf")
+print(f"文件大小: {metadata['size']} 字节")
+
+# 复制文件
+new_url = await storage.copy(
+    source_key="documents/report.pdf",
+    dest_key="backup/report_2026.pdf"
+)
+
+# 列出文件
+files = await storage.list_objects(prefix="documents/", recursive=True)
+
+# 获取预签名 URL（仅 MinIO）
+url = await storage.get_presigned_url("documents/report.pdf", expires=3600)
+```
+
+---
+
+## 性能优化建议
+
+### 并发配置
+
+```python
+# pyproject.toml 或环境变量
+WORKER_CONCURRENCY=8
+WORKER_PREFETCH_MULTIPLIER=1
+
+# 软超时和硬超时
+task_soft_time_limit=3300,  # 55分钟，提前5分钟警告
+task_time_limit=3600,       # 1小时硬超时
+
+# 延迟确认，避免任务丢失
+task_acks_late=True
+```
+
+### 监控指标
+
+建议监控以下指标：
+
+- **死信队列**：任务总数、最近24小时新增、按类型分布
+- **SSE 连接**：活跃连接数、按流分组、最长连接时长
+- **工具执行**：成功率、平均执行时间、错误分布
+- **MinIO 存储**：上传/下载成功率、错误类型分布
+
+### 性能调优
+
+#### Celery Worker
+
+```bash
+# 使用多个 worker 进程
+celery -A app.core.celery_app worker \
+  -Q default,parse,workflow,agent \
+  -l info \
+  -c 8 \
+  --max-tasks-per-child=100  # 定期重启 worker 进程
+```
+
+#### 数据库连接池
+
+```python
+# 配置连接池大小
+engine = create_async_engine(
+    DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True
+)
+```
+
+#### Redis 连接
+
+```python
+# 使用连接池
+redis_pool = redis.ConnectionPool(
+    host='localhost',
+    port=6379,
+    max_connections=50
+)
+```
+
+---
+
 ## 参考文档
 
 - Celery 文档: https://docs.celeryq.dev/
 - LangGraph 文档: https://langchain-ai.github.io/langgraph/
 - FastAPI 文档: https://fastapi.tiangolo.com/
+- MinIO Python SDK: https://min.io/docs/minio/linux/developers/python/minio-py.html
 - 项目设计文档: `docs/backend-plans/`
