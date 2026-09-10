@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from app.api.response import ok
 from app.core.celery_app import celery_app
+from app.core.storage.health import check_storage_health
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from sqlalchemy import text
@@ -75,7 +76,24 @@ async def readiness_check():
 @router.get("/live")
 async def liveness_check():
     """存活检查。
-    
+
     用于 Kubernetes liveness probe。
     """
     return ok({"status": "alive"})
+
+
+@router.get("/storage")
+async def storage_health():
+    """存储系统健康检查。
+
+    检查存储系统（本地文件系统或 MinIO）的连接状态。
+    """
+    result = await check_storage_health()
+
+    if result["status"] == "healthy":
+        return ok(result)
+    else:
+        raise BizException(
+            ErrorCode.SERVICE_ERROR,
+            f"Storage unhealthy: {result.get('error', 'Unknown error')}"
+        )
