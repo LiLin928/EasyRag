@@ -97,7 +97,7 @@ async def upload(
         session.add(document)
         await session.flush()
         document.file_key = f"{kb.id}/{document.id}/{file.filename}"
-        task = ParseTask(doc_id=document.id, kb_id=kbId, status="pending")
+        task = ParseTask(doc_id=document.id, kb_id=str(kb.id), status="pending")
         session.add(task)
         await session.commit()
         await session.refresh(document)

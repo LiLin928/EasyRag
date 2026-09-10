@@ -2,6 +2,10 @@
 
 提供 Celery 应用实例和任务注册。
 """
+# 在最顶部加载 .env 文件，确保环境变量已加载
+from dotenv import load_dotenv
+load_dotenv()
+
 from celery import Celery
 from kombu import Queue
 import os
