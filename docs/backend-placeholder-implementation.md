@@ -1,8 +1,22 @@
 # 后端占位符实现清单
 
 > 生成日期: 2026-09-10
+> 最后更新: 2026-09-10
 > 检查范围: backend/app 目录下所有代码
 > 目的: 识别尚未实现具体逻辑的占位符代码
+
+---
+
+## ⚠️ 架构变更说明
+
+**2026-09-10**: 已移除 PGWorker，统一使用 Celery Workers。
+
+**变更详情**:
+- ❌ 删除 `app/worker/pg_worker.py` 及相关文件
+- ✅ 所有任务统一通过 Celery 处理
+- ✅ API 端点已迁移到使用 `celery_client` 或直接调用服务
+
+**新架构文档**: 见 `docs/backend-architecture-v2.md`
 
 ---
 
