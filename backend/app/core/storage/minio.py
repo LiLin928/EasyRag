@@ -8,7 +8,7 @@
 import io
 import asyncio
 from urllib.parse import urljoin
-from typing import Optional
+from typing import Optional, List
 import logging
 
 from minio import Minio
@@ -283,3 +283,179 @@ class MinioStorage:
         except Exception as e:
             logger.error(f"Unexpected error checking MinIO object: {key}, error: {e}")
             return False
+
+    async def get_metadata(self, key: str) -> Optional[dict]:
+        """获取对象元数据。
+
+        Args:
+            key: 对象键
+
+        Returns:
+            元数据字典，包含：
+            - size: 文件大小（字节）
+            - content_type: 内容类型
+            - last_modified: 最后修改时间
+            - etag: ETag
+            - metadata: 自定义元数据
+
+        Raises:
+            FileNotFoundError: 文件不存在
+        """
+        key = key.lstrip("/")
+
+        try:
+            stat = self.client.stat_object(self.bucket, key)
+            return {
+                "size": stat.size,
+                "content_type": stat.content_type,
+                "last_modified": stat.last_modified,
+                "etag": stat.etag,
+                "metadata": stat.metadata,
+            }
+
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                return None
+
+            logger.error(f"Failed to get metadata from MinIO: {key}, error: {e}")
+            return None
+
+    async def list_objects(
+        self,
+        prefix: str = "",
+        recursive: bool = True,
+    ) -> List[str]:
+        """列出对象。
+
+        Args:
+            prefix: 前缀过滤
+            recursive: 是否递归
+
+        Returns:
+            对象键列表
+        """
+        try:
+            objects = self.client.list_objects(
+                self.bucket,
+                prefix=prefix,
+                recursive=recursive,
+            )
+
+            object_list = [obj.object_name for obj in objects]
+            logger.info(f"Listed {len(object_list)} objects with prefix '{prefix}'")
+            return object_list
+
+        except S3Error as e:
+            logger.error(f"Failed to list objects in MinIO: {e}")
+            return []
+
+    async def copy(
+        self,
+        source_key: str,
+        dest_key: str,
+    ) -> str:
+        """复制对象。
+
+        Args:
+            source_key: 源对象键
+            dest_key: 目标对象键
+
+        Returns:
+            新对象 URL
+
+        Raises:
+            MinioNotFoundError: 源对象不存在
+            MinioStorageError: 复制失败
+        """
+        source_key = source_key.lstrip("/")
+        dest_key = dest_key.lstrip("/")
+
+        try:
+            from minio.commonconfig import CopySource
+
+            # 复制对象
+            self.client.copy_object(
+                self.bucket,
+                dest_key,
+                CopySource(self.bucket, source_key),
+            )
+
+            logger.info(f"Copied {source_key} to {dest_key}")
+
+            if self.public_url:
+                return urljoin(self.public_url, f"{self.bucket}/{dest_key}")
+            return f"/{self.bucket}/{dest_key}"
+
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                raise MinioNotFoundError(
+                    f"源对象不存在: {source_key}",
+                    operation="copy",
+                    key=source_key
+                )
+
+            logger.error(f"Failed to copy object: {e}")
+            raise MinioStorageError(
+                f"复制失败: {str(e)}",
+                operation="copy",
+                key=dest_key
+            )
+
+    async def get_presigned_url(
+        self,
+        key: str,
+        expires: int = 3600,
+    ) -> str:
+        """获取预签名 URL。
+
+        Args:
+            key: 对象键
+            expires: 过期时间（秒）
+
+        Returns:
+            预签名 URL
+
+        Raises:
+            MinioStorageError: 生成预签名 URL 失败
+        """
+        key = key.lstrip("/")
+
+        try:
+            from datetime import timedelta
+            url = self.client.presigned_get_object(
+                self.bucket,
+                key,
+                expires=timedelta(seconds=expires),
+            )
+
+            logger.info(f"Generated presigned URL for {key}, expires in {expires}s")
+            return url
+
+        except S3Error as e:
+            logger.error(f"Failed to generate presigned URL: {e}")
+            raise MinioStorageError(
+                f"生成预签名 URL 失败: {str(e)}",
+                operation="get_presigned_url",
+                key=key
+            )
+
+    async def get_size(self, key: str) -> int:
+        """获取对象大小。
+
+        Args:
+            key: 对象键
+
+        Returns:
+            文件大小（字节）
+
+        Raises:
+            MinioNotFoundError: 对象不存在
+        """
+        metadata = await self.get_metadata(key)
+        if metadata is None:
+            raise MinioNotFoundError(
+                f"对象不存在: {key}",
+                operation="get_size",
+                key=key
+            )
+        return metadata["size"]
