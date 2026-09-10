@@ -1,22 +1,4 @@
-"""Agent Celery 任务
-
-⚠️ DEPRECATED: 本文件已废弃，将在未来版本移除。
-新的 Agent 执行直接使用 AgentService（app/services/agent_service.py）。
-
-迁移路径：
-- Celery agent_tasks.execute_agent_chat → API 直接调用 AgentService.chat()
-- AgentService 使用 LangGraph create_react_agent
-- 支持 SSE 流式输出
-
-保留本文件仅用于向后兼容。
-"""
-import warnings
-
-warnings.warn(
-    "agent_tasks 模块已废弃，请使用 AgentService",
-    DeprecationWarning,
-    stacklevel=2
-)
+"""Agent Celery 任务"""
 import asyncio
 from typing import Dict, Any, Optional
 from celery.exceptions import MaxRetriesExceededError
@@ -39,184 +21,136 @@ def execute_agent_chat(
 ) -> dict:
     """
     Agent 对话任务
-    
-    长时间运行任务，支持流式输出
-    
+
+    使用 AgentService 执行对话，通过 Redis Streams 推送 SSE 事件
+
     Args:
         agent_id: Agent ID
         chat_id: 聊天 ID (用于 SSE 流)
         question: 用户问题
         conversation_id: 会话 ID (可选)
-        
+
     Returns:
         对话结果
     """
     stream_key = f"agent:{chat_id}"
-    
+
     try:
-        # 1. 发送开始事件
-        _publish_sync(stream_key, "phase", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "phase": "thinking",
-            "question": question
-        })
-        
-        # 2. 构建 Agent (模拟)
-        # TODO: 实际调用 AgentService
-        # from app.services.agent_service import AgentService
-        # agent_service = AgentService()
-        
-        # 3. 模拟流式输出
-        # 实际应该使用 LangChain 的 astream_events
-        _publish_sync(stream_key, "token", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "token": "",
-            "is_start": True
-        })
-        
-        # 模拟 token 流
-        response = ""
-        tokens = ["我", "是", "Agent", "，", "正在", "回答", "您", "的", "问题", "。"]
-        for token in tokens:
-            response += token
-            _publish_sync(stream_key, "token", {
-                "agent_id": agent_id,
-                "chat_id": chat_id,
-                "token": token,
-                "is_start": False
-            })
-            # 模拟延迟
-            import time
-            time.sleep(0.1)
-        
-        # 4. 模拟工具调用
-        _publish_sync(stream_key, "tool_start", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "tool": "search_knowledge",
-            "input": {"query": question}
-        })
-        
-        # 模拟工具执行
-        import time
-        time.sleep(0.5)
-        
-        _publish_sync(stream_key, "tool_end", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "tool": "search_knowledge",
-            "output": {"chunks": 3, "sources": []}
-        })
-        
-        # 5. 完成
-        result = {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "conversation_id": conversation_id,
-            "question": question,
-            "answer": response + " (这是示例回答)",
-            "tokens_used": len(tokens) + 100,
-            "tools_used": ["search_knowledge"]
-        }
-        
-        _publish_sync(stream_key, "done", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "result": result
-        })
-        
-        logger.info(f"Agent chat completed: agent_id={agent_id}, chat_id={chat_id}")
-        return result
-        
+        # 创建事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            # 执行 Agent 对话
+            result = loop.run_until_complete(
+                _execute_agent_chat_async(
+                    agent_id, chat_id, question, conversation_id, stream_key
+                )
+            )
+            return result
+        finally:
+            loop.close()
+
     except Exception as exc:
-        logger.error(f"Agent chat failed: agent_id={agent_id}, chat_id={chat_id}, error={exc}")
-        
+        logger.error(f"Agent chat failed: agent_id={agent_id}, error={exc}")
+
         _publish_sync(stream_key, "error", {
             "agent_id": agent_id,
             "chat_id": chat_id,
             "error": str(exc)
         })
-        
+
         if self.request.retries < self.max_retries:
             raise self.retry(exc=exc, countdown=30)
-        
+
         raise
 
 
-@celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def execute_agent_tool(
-    self,
+async def _execute_agent_chat_async(
     agent_id: str,
     chat_id: str,
-    tool_name: str,
-    tool_input: Dict[str, Any]
+    question: str,
+    conversation_id: Optional[str],
+    stream_key: str
 ) -> dict:
-    """
-    执行 Agent 工具
-    
-    用于独立工具执行任务
-    
-    Args:
-        agent_id: Agent ID
-        chat_id: 聊天 ID
-        tool_name: 工具名称
-        tool_input: 工具输入
-        
-    Returns:
-        工具执行结果
-    """
-    stream_key = f"agent:{chat_id}"
-    
+    """异步执行 Agent 对话"""
+    from app.services.agent_service import AgentService
+    from app.db.session import async_session
+    from sqlalchemy import select
+    from app.models.agent import Agent
+
+    # 获取 agent 信息
+    async with async_session() as session:
+        agent = (await session.execute(
+            select(Agent).where(Agent.id == agent_id)
+        )).scalar_one_or_none()
+
+        if not agent:
+            _publish_sync(stream_key, "error", {
+                "code": 40300,
+                "message": "智能体不存在"
+            })
+            return {"status": "failed", "error": "Agent not found"}
+
+        user_id = agent.user_id
+
+    # 调用 AgentService
+    svc = AgentService()
+    full_response = ""
+
     try:
-        _publish_sync(stream_key, "tool_start", {
+        async for event in svc.chat(agent_id, question, user_id):
+            # 解析 SSE 事件并转发到 Redis Streams
+            if event.startswith("data:"):
+                import json
+                try:
+                    data = json.loads(event[5:].strip())
+                    event_type = data.get("event", "unknown")
+
+                    # 转发事件
+                    _publish_sync(stream_key, event_type, data)
+
+                    # 收集响应
+                    if event_type == "token":
+                        full_response += data.get("token", "")
+                except json.JSONDecodeError:
+                    pass
+
+        logger.info(f"Agent chat completed: agent_id={agent_id}, chat_id={chat_id}")
+        return {
             "agent_id": agent_id,
             "chat_id": chat_id,
-            "tool": tool_name,
-            "input": tool_input
-        })
-        
-        # TODO: 调用实际工具
-        # from app.services.tool_service import execute_tool
-        # result = execute_tool(tool_name, tool_input)
-        
-        import time
-        time.sleep(0.5)
-        
-        result = {"status": "success", "output": f"Tool {tool_name} executed"}
-        
-        _publish_sync(stream_key, "tool_end", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "tool": tool_name,
-            "output": result
-        })
-        
-        return result
-        
+            "status": "success",
+            "response_length": len(full_response)
+        }
+
     except Exception as exc:
-        logger.error(f"Tool execution failed: {tool_name}, error={exc}")
-        
-        _publish_sync(stream_key, "tool_end", {
-            "agent_id": agent_id,
-            "chat_id": chat_id,
-            "tool": tool_name,
-            "error": str(exc)
+        logger.error(f"Agent chat async failed: {exc}")
+        _publish_sync(stream_key, "error", {
+            "code": 50001,
+            "message": str(exc)
         })
-        
-        if self.request.retries < self.max_retries:
-            raise self.retry(exc=exc, countdown=30)
-        
         raise
 
 
 def _publish_sync(stream: str, event_type: str, payload: dict):
-    """同步发布事件"""
+    """同步发布事件到 Redis Streams"""
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(publish_event(stream, event_type, payload))
-        loop.close()
+        import redis
+        import json
+        from datetime import datetime
+        import os
+
+        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        r = redis.from_url(redis_url)
+
+        data = {
+            "type": event_type,
+            "timestamp": datetime.utcnow().isoformat(),
+            "payload": json.dumps(payload),
+        }
+
+        r.xadd(stream, data, maxlen=10000, approximate=True)
+        logger.debug(f"Published event: {event_type} to {stream}")
     except Exception as e:
         logger.warning(f"Failed to publish event: {e}")
