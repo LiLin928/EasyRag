@@ -16,6 +16,7 @@ from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.conversation import Conversation, Message
 from app.providers.langchain_factory import build_chat_model
+from app.providers.trace.span_manager import traced_span
 from app.services.retrieval_settings_service import SYSTEM_DEFAULTS
 
 
@@ -98,210 +99,223 @@ async def chat_stream(req, user_id):
     yields SSE 格式字符串，前端用 fetch-event-source 消费。
 
     注意：数据库会话在每个操作块中单独管理，避免在 yield 过程中持有连接。
+
+    Args:
+        req: 对话请求对象
+        user_id: 用户 ID
+
+    Yields:
+        SSE 格式的事件字符串
     """
     import logging
     logger = logging.getLogger(__name__)
 
-    t0 = time.monotonic()
-    trace_id = uuid.uuid4().hex[:12]
+    with traced_span("chat.stream", attributes={"user_id": user_id}):
+        t0 = time.monotonic()
+        trace_id = uuid.uuid4().hex[:12]
 
-    logger.info(f"[Chat] Starting chat for user {user_id}, question: {req.question[:50]}...")
+        logger.info(f"[Chat] Starting chat for user {user_id}, question: {req.question[:50]}...")
 
-    # 阶段1：初始化会话和存储用户消息
-    conv_id = None
-    async with async_session() as s:
-        # 确保/创建会话
-        if req.conversation_id:
-            conv = (await s.execute(
-                select(Conversation).where(Conversation.id == req.conversation_id)
-            )).scalar_one_or_none()
-            if not conv:
-                yield _sse("error", {"code": 40400, "message": "会话不存在"})
-                return
-            conv_id = conv.id
-        else:
-            conv = Conversation(
-                user_id=user_id,
-                title=req.question[:30] if req.question else "新对话",
-                msg_count=0,
-            )
-            s.add(conv)
-            await s.flush()
-            conv_id = conv.id
+        # 阶段1：初始化会话和存储用户消息
+        with traced_span("chat.init_conversation"):
+            conv_id = None
+            async with async_session() as s:
+                # 确保/创建会话
+                if req.conversation_id:
+                    conv = (await s.execute(
+                        select(Conversation).where(Conversation.id == req.conversation_id)
+                    )).scalar_one_or_none()
+                    if not conv:
+                        yield _sse("error", {"code": 40400, "message": "会话不存在"})
+                        return
+                    conv_id = conv.id
+                else:
+                    conv = Conversation(
+                        user_id=user_id,
+                        title=req.question[:30] if req.question else "新对话",
+                        msg_count=0,
+                    )
+                    s.add(conv)
+                    await s.flush()
+                    conv_id = conv.id
 
-        # 存 user 消息
-        user_msg = Message(conversation_id=conv_id, role="user", content=req.question)
-        s.add(user_msg)
-        await s.commit()
-        logger.info(f"[Chat] Conversation {conv_id} initialized")
-
-    yield _sse("phase", {"phase": "parse"})
-
-    # 阶段2：查询改写（独立会话）
-    rewritten = req.question
-    try:
-        logger.info("[Chat] Trying to build LLM model for rewrite")
-        llm = await build_chat_model(use="rewrite")
-        logger.info("[Chat] Rewrite LLM built successfully")
-
-        async with async_session() as s:
-            history = await _load_history(s, conv_id, limit=4)
-            logger.info(f"[Chat] Loaded {len(history)} history messages")
-
-            if history:
-                rewrite_prompt = _build_rewrite_prompt(req.question, history)
-                logger.info("[Chat] Calling LLM for rewrite...")
-                resp = await llm.ainvoke(rewrite_prompt)
-                rewritten = resp.content.strip() if hasattr(resp, "content") else str(resp)
-                logger.info(f"[Chat] Query rewritten: {rewritten[:50]}...")
-            else:
-                logger.info("[Chat] No history, skip rewrite")
-    except BizException as e:
-        logger.warning(f"[Chat] Rewrite failed (BizException): {e.message}, using original question")
-    except Exception as e:
-        logger.warning(f"[Chat] Rewrite failed: {e}, using original question")
-
-    yield _sse("phase", {"phase": "navigate"})
-
-    # 阶段3：检索（仅当指定知识库/文档时）
-    t_nav = time.monotonic()
-    refs = []
-    nav_ms = 0
-
-    # 判断是否需要检索：有知识库或文档时才检索
-    need_retrieval = req.doc_ids or req.kb_ids
-
-    if need_retrieval:
-        try:
-            pipeline = RetrievalPipeline(settings=_system_settings())
-            result = await pipeline.search(
-                rewritten,
-                kb_ids=req.kb_ids,
-                doc_ids=req.doc_ids or None,
-                scope=None,
-                metadata_filter=None,
-                top_k=req.top_k or 5,
-                enable_nav=None,
-                count_recall=False,
-            )
-            nav_ms = int((time.monotonic() - t_nav) * 1000)
-
-            if result.nav_info:
-                yield _sse("navigation", result.nav_info)
-
-            yield _sse("phase", {"phase": "retrieve"})
-
-            refs = result.references or []
-            yield _sse("references", {"references": refs})
-        except BizException as e:
-            logger.error(f"[Chat] Retrieval failed (BizException): {e.message}")
-            yield _sse("error", {"code": int(e.code), "message": e.message})
-            return
-        except Exception as e:
-            logger.error(f"[Chat] Retrieval failed: {e}", exc_info=True)
-            yield _sse("error", {"code": 50001, "message": f"检索失败: {str(e)}"})
-            return
-    else:
-        # 简单对话：跳过检索
-        logger.info("[Chat] No KB/docs specified, skipping retrieval (simple chat)")
-        yield _sse("phase", {"phase": "skip_retrieve"})
-        yield _sse("references", {"references": []})
-
-    yield _sse("phase", {"phase": "generate"})
-
-    t_gen = time.monotonic()
-    buffer = []
-
-    # 阶段4：流式生成
-    # 先加载历史消息
-    history = []
-    async with async_session() as s:
-        history = await _load_history(s, conv_id, limit=6)  # 最近6条消息
-        logger.info(f"[Chat] Loaded {len(history)} history messages for generation")
-
-    try:
-        logger.info(f"[Chat] Building LLM model for use=qa")
-        gen_llm = await build_chat_model(use="qa")
-        logger.info(f"[Chat] LLM model built successfully, provider: {type(gen_llm).__name__}")
-        scene_cfg = await get_scene_config(req.scene)
-        prompt = _build_prompt(req.question, refs, scene_cfg, history)  # 传递历史消息
-        logger.info(f"[Chat] Starting LLM stream for question: {req.question[:50]}...")
-        token_count = 0
-        async for chunk in gen_llm.astream(prompt):
-            token = chunk.content if hasattr(chunk, "content") else str(chunk)
-            if token:
-                buffer.append(token)
-                token_count += 1
-                logger.debug(f"[Chat] Token #{token_count}: {token[:20]}...")
-                yield _sse("token", {"token": token})
-        logger.info(f"[Chat] LLM stream completed, generated {len(buffer)} tokens, sent {token_count} SSE events")
-    except BizException as e:
-        logger.error(f"[Chat] BizException: {e.message}")
-        yield _sse("error", {"code": int(e.code), "message": e.message})
-        return
-    except Exception as e:
-        # LLM 不可用时回退
-        logger.error(f"[Chat] Exception during LLM call: {e}", exc_info=True)
-        fallback = "抱歉，生成服务暂时不可用，请检查模型配置。"
-        buffer.append(fallback)
-        yield _sse("token", {"token": fallback})
-
-    gen_ms = int((time.monotonic() - t_gen) * 1000)
-    total_ms = int((time.monotonic() - t0) * 1000)
-
-    # 估算token数量（中文字符约1.5 tokens，英文单词约1 token）
-    # 简单估算：总字符数 / 2
-    estimated_tokens = len("".join(buffer)) // 2
-    usage = {
-        "prompt_tokens": 0,
-        "completion_tokens": estimated_tokens,
-        "total_tokens": estimated_tokens
-    }
-    trace = {
-        "trace_id": trace_id,
-        "nav_ms": nav_ms,
-        "retrieve_ms": nav_ms,
-        "generate_ms": gen_ms,
-        "total_ms": total_ms,
-    }
-
-    # 阶段5：保存结果（独立会话）
-    try:
-        async with async_session() as s:
-            # 重新加载会话
-            conv = (await s.execute(
-                select(Conversation).where(Conversation.id == conv_id)
-            )).scalar_one_or_none()
-
-            if conv:
-                # 存 assistant 消息
-                assistant_msg = Message(
-                    conversation_id=conv_id,
-                    role="assistant",
-                    content="".join(buffer),
-                    references=refs,
-                    trace=trace,
-                    usage=usage,
-                )
-                s.add(assistant_msg)
-                conv.msg_count = (conv.msg_count or 0) + 2
-                conv.last_time = datetime.now(timezone.utc).isoformat()
+                # 存 user 消息
+                user_msg = Message(conversation_id=conv_id, role="user", content=req.question)
+                s.add(user_msg)
                 await s.commit()
-                await s.refresh(assistant_msg)
+                logger.info(f"[Chat] Conversation {conv_id} initialized")
 
-                yield _sse("done", {
-                    "message_id": str(assistant_msg.id),
-                    "conversation_id": str(conv_id),
-                    "usage": usage,
-                })
-                yield _sse("trace", trace)
-                logger.info(f"[Chat] Chat completed, conversation {conv_id} updated")
+        yield _sse("phase", {"phase": "parse"})
+
+        # 阶段2：查询改写（独立会话）
+        with traced_span("chat.rewrite"):
+            rewritten = req.question
+            try:
+                logger.info("[Chat] Trying to build LLM model for rewrite")
+                llm = await build_chat_model(use="rewrite")
+                logger.info("[Chat] Rewrite LLM built successfully")
+
+                async with async_session() as s:
+                    history = await _load_history(s, conv_id, limit=4)
+                    logger.info(f"[Chat] Loaded {len(history)} history messages")
+
+                    if history:
+                        rewrite_prompt = _build_rewrite_prompt(req.question, history)
+                        logger.info("[Chat] Calling LLM for rewrite...")
+                        resp = await llm.ainvoke(rewrite_prompt)
+                        rewritten = resp.content.strip() if hasattr(resp, "content") else str(resp)
+                        logger.info(f"[Chat] Query rewritten: {rewritten[:50]}...")
+                    else:
+                        logger.info("[Chat] No history, skip rewrite")
+            except BizException as e:
+                logger.warning(f"[Chat] Rewrite failed (BizException): {e.message}, using original question")
+            except Exception as e:
+                logger.warning(f"[Chat] Rewrite failed: {e}, using original question")
+
+        yield _sse("phase", {"phase": "navigate"})
+
+        # 阶段3：检索（仅当指定知识库/文档时）
+        with traced_span("chat.retrieval"):
+            t_nav = time.monotonic()
+            refs = []
+            nav_ms = 0
+
+            # 判断是否需要检索：有知识库或文档时才检索
+            need_retrieval = req.doc_ids or req.kb_ids
+
+            if need_retrieval:
+                try:
+                    pipeline = RetrievalPipeline(settings=_system_settings())
+                    result = await pipeline.search(
+                        rewritten,
+                        kb_ids=req.kb_ids,
+                        doc_ids=req.doc_ids or None,
+                        scope=None,
+                        metadata_filter=None,
+                        top_k=req.top_k or 5,
+                        enable_nav=None,
+                        count_recall=False,
+                    )
+                    nav_ms = int((time.monotonic() - t_nav) * 1000)
+
+                    if result.nav_info:
+                        yield _sse("navigation", result.nav_info)
+
+                    yield _sse("phase", {"phase": "retrieve"})
+
+                    refs = result.references or []
+                    yield _sse("references", {"references": refs})
+                except BizException as e:
+                    logger.error(f"[Chat] Retrieval failed (BizException): {e.message}")
+                    yield _sse("error", {"code": int(e.code), "message": e.message})
+                    return
+                except Exception as e:
+                    logger.error(f"[Chat] Retrieval failed: {e}", exc_info=True)
+                    yield _sse("error", {"code": 50001, "message": f"检索失败: {str(e)}"})
+                    return
             else:
-                logger.error(f"[Chat] Conversation {conv_id} not found when saving result")
-                yield _sse("error", {"code": 50001, "message": "会话丢失，请重试"})
-    except Exception as e:
-        logger.error(f"[Chat] Failed to save result: {e}", exc_info=True)
-        yield _sse("error", {"code": 50001, "message": f"保存结果失败: {str(e)}"})
+                # 简单对话：跳过检索
+                logger.info("[Chat] No KB/docs specified, skipping retrieval (simple chat)")
+                yield _sse("phase", {"phase": "skip_retrieve"})
+                yield _sse("references", {"references": []})
+
+        yield _sse("phase", {"phase": "generate"})
+
+        t_gen = time.monotonic()
+        buffer = []
+
+        # 阶段4：流式生成
+        with traced_span("chat.generate"):
+            # 先加载历史消息
+            history = []
+            async with async_session() as s:
+                history = await _load_history(s, conv_id, limit=6)  # 最近6条消息
+                logger.info(f"[Chat] Loaded {len(history)} history messages for generation")
+
+            try:
+                logger.info(f"[Chat] Building LLM model for use=qa")
+                gen_llm = await build_chat_model(use="qa")
+                logger.info(f"[Chat] LLM model built successfully, provider: {type(gen_llm).__name__}")
+                scene_cfg = await get_scene_config(req.scene)
+                prompt = _build_prompt(req.question, refs, scene_cfg, history)  # 传递历史消息
+                logger.info(f"[Chat] Starting LLM stream for question: {req.question[:50]}...")
+                token_count = 0
+                async for chunk in gen_llm.astream(prompt):
+                    token = chunk.content if hasattr(chunk, "content") else str(chunk)
+                    if token:
+                        buffer.append(token)
+                        token_count += 1
+                        logger.debug(f"[Chat] Token #{token_count}: {token[:20]}...")
+                        yield _sse("token", {"token": token})
+                logger.info(f"[Chat] LLM stream completed, generated {len(buffer)} tokens, sent {token_count} SSE events")
+            except BizException as e:
+                logger.error(f"[Chat] BizException: {e.message}")
+                yield _sse("error", {"code": int(e.code), "message": e.message})
+                return
+            except Exception as e:
+                # LLM 不可用时回退
+                logger.error(f"[Chat] Exception during LLM call: {e}", exc_info=True)
+                fallback = "抱歉，生成服务暂时不可用，请检查模型配置。"
+                buffer.append(fallback)
+                yield _sse("token", {"token": fallback})
+
+        gen_ms = int((time.monotonic() - t_gen) * 1000)
+        total_ms = int((time.monotonic() - t0) * 1000)
+
+        # 估算token数量（中文字符约1.5 tokens，英文单词约1 token）
+        # 简单估算：总字符数 / 2
+        estimated_tokens = len("".join(buffer)) // 2
+        usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": estimated_tokens,
+            "total_tokens": estimated_tokens
+        }
+        trace = {
+            "trace_id": trace_id,
+            "nav_ms": nav_ms,
+            "retrieve_ms": nav_ms,
+            "generate_ms": gen_ms,
+            "total_ms": total_ms,
+        }
+
+        # 阶段5：保存结果（独立会话）
+        with traced_span("chat.save_result"):
+            try:
+                async with async_session() as s:
+                    # 重新加载会话
+                    conv = (await s.execute(
+                        select(Conversation).where(Conversation.id == conv_id)
+                    )).scalar_one_or_none()
+
+                    if conv:
+                        # 存 assistant 消息
+                        assistant_msg = Message(
+                            conversation_id=conv_id,
+                            role="assistant",
+                            content="".join(buffer),
+                            references=refs,
+                            trace=trace,
+                            usage=usage,
+                        )
+                        s.add(assistant_msg)
+                        conv.msg_count = (conv.msg_count or 0) + 2
+                        conv.last_time = datetime.now(timezone.utc).isoformat()
+                        await s.commit()
+                        await s.refresh(assistant_msg)
+
+                        yield _sse("done", {
+                            "message_id": str(assistant_msg.id),
+                            "conversation_id": str(conv_id),
+                            "usage": usage,
+                        })
+                        yield _sse("trace", trace)
+                        logger.info(f"[Chat] Chat completed, conversation {conv_id} updated")
+                    else:
+                        logger.error(f"[Chat] Conversation {conv_id} not found when saving result")
+                        yield _sse("error", {"code": 50001, "message": "会话丢失，请重试"})
+            except Exception as e:
+                logger.error(f"[Chat] Failed to save result: {e}", exc_info=True)
+                yield _sse("error", {"code": 50001, "message": f"保存结果失败: {str(e)}"})
 
 
 async def _load_history(s: AsyncSession, conv_id, limit=4):
