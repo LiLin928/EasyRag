@@ -1,0 +1,38 @@
+groups:
+- name: app_alerts
+  rules:
+  # 高错误率
+  - alert: HighErrorRate
+    expr: |
+      rate(http_requests_total{status=~"5.."}[5m])
+      /
+      rate(http_requests_total[5m])
+      > 0.03
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "高错误率告警"
+      description: "API 错误率超过 3%（当前: {{ $value | humanizePercentage }}）"
+
+  # 高延迟
+  - alert: HighLatency
+    expr: |
+      histogram_quantile(0.95, http_request_duration_seconds_bucket)
+      > 1.0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "API 响应延迟过高"
+      description: "P95 延迟超过 1 秒（当前: {{ $value | humanizeDuration }}）"
+
+  # 服务不可用
+  - alert: ServiceDown
+    expr: up{job="easyrag-api"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "服务不可用"
+      description: "EasyRAG API 服务已停止响应"

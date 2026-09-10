@@ -1,0 +1,40 @@
+groups:
+- name: business_alerts
+  rules:
+  # 文档解析失败率高
+  - alert: HighParseFailureRate
+    expr: |
+      rate(easyrag_parse_documents_total{status="failed"}[10m])
+      /
+      rate(easyrag_parse_documents_total[10m])
+      > 0.10
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "文档解析失败率过高"
+      description: "解析失败率超过 10%（当前: {{ $value | humanizePercentage }}）"
+
+  # 工作流执行失败
+  - alert: WorkflowExecutionFailed
+    expr: rate(easyrag_workflow_executions_total{status="failed"}[5m]) > 0
+    for: 3m
+    labels:
+      severity: warning
+    annotations:
+      summary: "工作流执行失败"
+      description: "工作流 {{ $labels.workflow_id }} 执行失败"
+
+  # 检索测试通过率低
+  - alert: LowRetrievalTestPassRate
+    expr: |
+      rate(easyrag_retrieval_tests_total{status="success"}[10m])
+      /
+      rate(easyrag_retrieval_tests_total[10m])
+      < 0.80
+    for: 10m
+    labels:
+      severity: info
+    annotations:
+      summary: "检索测试通过率偏低"
+      description: "检索测试通过率低于 80%（当前: {{ $value | humanizePercentage }}）"

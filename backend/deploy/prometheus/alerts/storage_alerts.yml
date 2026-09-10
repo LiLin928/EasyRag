@@ -1,0 +1,38 @@
+groups:
+- name: storage_alerts
+  rules:
+  # 存储错误率高
+  - alert: HighStorageErrorRate
+    expr: |
+      rate(easyrag_storage_operations_total{status="error"}[5m])
+      /
+      rate(easyrag_storage_operations_total[5m])
+      > 0.05
+    for: 3m
+    labels:
+      severity: critical
+    annotations:
+      summary: "存储错误率过高"
+      description: "存储操作错误率超过 5%（当前: {{ $value | humanizePercentage }}）"
+
+  # 上传延迟过高
+  - alert: HighUploadLatency
+    expr: |
+      histogram_quantile(0.95, easyrag_storage_operation_duration_seconds_bucket{operation="upload"})
+      > 5.0
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "上传延迟过高"
+      description: "上传操作 P95 延迟超过 5 秒（当前: {{ $value | humanizeDuration }}）"
+
+  # MinIO 连接失败
+  - alert: MinioConnectionFailed
+    expr: easyrag_storage_operations_total{operation="upload",status="error"} > 0
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "MinIO 连接失败"
+      description: "连续 2 分钟无法连接到 MinIO"
