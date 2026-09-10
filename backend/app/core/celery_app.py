@@ -3,6 +3,7 @@
 提供 Celery 应用实例和任务注册。
 """
 from celery import Celery
+from kombu import Queue
 import os
 
 # 优先使用 Celery 专用配置，回退到通用 Redis URL
@@ -44,11 +45,27 @@ celery_app.conf.update(
     task_default_queue="default",
     task_default_routing_key="default",
 
-    # 队列路由 - 按业务分类
+    # 优先级队列配置
+    task_queues={
+        "high": Queue("high", routing_key="high"),
+        "default": Queue("default", routing_key="default"),
+        "low": Queue("low", routing_key="low"),
+        "parse": Queue("parse", routing_key="parse"),
+        "workflow": Queue("workflow", routing_key="workflow"),
+        "agent": Queue("agent", routing_key="agent"),
+    },
+
+    # 队列路由 - 按业务分类 + 优先级
     task_routes={
+        # 业务队列路由
         "parse.*": {"queue": "parse"},
         "workflow.*": {"queue": "workflow"},
         "agent.*": {"queue": "agent"},
+        # 高优先级任务
+        "workflow.urgent": {"queue": "high"},
+        # 低优先级任务
+        "cleanup.*": {"queue": "low"},
+        "retrieval_test.*": {"queue": "low"},
     },
 
     # 重试配置
@@ -93,4 +110,4 @@ if __name__ == "__main__":
     print("Celery App Config:")
     print(f"  Broker: {celery_app.conf.broker_url}")
     print(f"  Backend: {celery_app.conf.result_backend}")
-    print(f"  Queues: default, parse, workflow, agent")
+    print(f"  Queues: high, default, low, parse, workflow, agent")

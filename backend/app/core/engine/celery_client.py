@@ -18,6 +18,7 @@ async def enqueue_workflow_task(
     inputs: dict | None,
     trigger: str,
     user_id: str | None,
+    priority: int = 5,
 ) -> str:
     """创建 WorkflowExecution 记录并提交 Celery 任务，返回 execution_id。
 
@@ -28,6 +29,7 @@ async def enqueue_workflow_task(
         inputs: 工作流输入参数
         trigger: 触发类型 (manual/api/webhook/chat/agent)
         user_id: 触发用户 ID
+        priority: 任务优先级（0-9，9最高，默认5）
 
     Returns:
         execution_id: 执行记录 ID
@@ -69,13 +71,22 @@ async def enqueue_workflow_task(
 
         execution_id = str(execution.id)
 
+        # 根据优先级选择队列（priority 范围 0-9）
+        if priority >= 7:
+            queue = "high"
+        elif priority >= 3:
+            queue = "workflow"  # 中等优先级使用业务队列
+        else:
+            queue = "low"
+
         # 提交 Celery 任务 (V2 方式)
         celery_app.send_task(
             "execute_workflow",
             args=[execution_id, definition, inputs or {}],
             kwargs={"debug": False},
-            queue="workflow",
+            queue=queue,
             task_id=execution_id,  # 使用 execution_id 作为 task_id，便于追踪
+            priority=priority,  # 传递优先级给 Celery
         )
 
         return execution_id
