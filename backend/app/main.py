@@ -18,7 +18,7 @@ from app.core.rate_limit import limiter
 from app.exceptions import BizException
 from app.security.init_admin import ensure_admin
 from app.api.v2 import assets, auth, chat, documents, elements, elements_list, feedback, health, knowledge, metadata, parse_tasks, retrieval, retrieval_settings, retrieval_testing, scenes, settings as settings_api, tree
-from app.api.v2 import tools, skills, mcps, agents, workflows, executions, todos, templates, users, audit, webhooks, versions
+from app.api.v2 import tools, skills, mcps, agents, workflows, executions, todos, templates, users, audit, webhooks, versions, dead_letter
 from app.logging import setup_logging, new_request_id
 
 setup_logging()
@@ -101,6 +101,7 @@ app.include_router(templates.router, prefix=settings.api_prefix)
 app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(health.router)
+app.include_router(dead_letter.router, prefix=settings.api_prefix)
 
 
 @app.get("/")

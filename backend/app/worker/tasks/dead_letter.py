@@ -181,11 +181,66 @@ class DeadLetterQueue:
         )
     
     @staticmethod
-    async def retry_dlq_task(task_id: str):
-        """手动重试死信队列中的任务"""
-        # TODO: 实现手动重试逻辑
-        logger.info(f"Retrying DLQ task: {task_id}")
-        pass
+    async def retry_dlq_task(task_id: str, user_id: str = None) -> bool:
+        """手动重试死信队列中的任务。
+
+        从数据库中查找指定的死信任务，解析其参数并重新提交到 Celery 队列。
+
+        Args:
+            task_id: Celery 任务 ID，唯一标识要重试的任务。
+            user_id: 操作用户 ID，用于审计追踪（可选）。
+
+        Returns:
+            bool: 重试成功返回 True，失败返回 False。
+
+        Raises:
+            不会抛出异常，所有错误都会被捕获并记录。
+        """
+        from app.core.celery_app import celery_app
+        from app.models.dead_letter import DeadLetterTaskModel, TaskStatus
+
+        async with async_session() as session:
+            # 查询死信任务
+            result = await session.execute(
+                select(DeadLetterTaskModel).where(DeadLetterTaskModel.task_id == task_id)
+            )
+            dl_task = result.scalar_one_or_none()
+
+            if not dl_task:
+                logger.warning(f"DLQ task not found: {task_id}")
+                return False
+
+            if dl_task.status != TaskStatus.PENDING:
+                logger.warning(f"DLQ task already processed: {task_id}, status={dl_task.status}")
+                return False
+
+            try:
+                # 解析参数（注意：args 和 kwargs 现在是 JSONB 类型）
+                args = dl_task.args if dl_task.args else ()
+                kwargs = dl_task.kwargs if dl_task.kwargs else {}
+
+                # 重新提交任务
+                celery_app.send_task(
+                    dl_task.task_name,
+                    args=args,
+                    kwargs=kwargs,
+                    queue=_get_queue_for_task(dl_task.task_name),
+                )
+
+                # 更新状态
+                dl_task.status = TaskStatus.RETRIED
+                dl_task.retried_at = datetime.utcnow()
+                if user_id:
+                    import uuid
+                    dl_task.retried_by = uuid.UUID(user_id)
+
+                await session.commit()
+                logger.info(f"DLQ task retried: {task_id}")
+                return True
+
+            except Exception as e:
+                logger.error(f"Failed to retry DLQ task {task_id}: {e}")
+                return False
     
     @staticmethod
     async def get_dlq_stats() -> Dict[str, Any]:
@@ -254,17 +309,17 @@ def monitor_dead_letter_queue():
 def cleanup_old_dlq_tasks(days: int = 30):
     """
     清理过期的死信队列任务
-    
+
     Args:
         days: 保留天数，默认 30 天
     """
     import asyncio
     from datetime import timedelta
-    
+
     async def _cleanup():
         cutoff = datetime.utcnow() - timedelta(days=days)
         logger.info(f"Cleaning up DLQ tasks older than {cutoff}")
-        
+
         # TODO: 从数据库删除旧任务
         # async with async_session() as session:
         #     await session.execute(
@@ -272,5 +327,23 @@ def cleanup_old_dlq_tasks(days: int = 30):
         #         .where(DeadLetterTaskModel.created_at < cutoff)
         #     )
         #     await session.commit()
-    
+
     asyncio.run(_cleanup())
+
+
+def _get_queue_for_task(task_name: str) -> str:
+    """根据任务名称确定队列。
+
+    Args:
+        task_name: 任务名称，如 "parse_document"。
+
+    Returns:
+        队列名称，如 "parse"、"workflow"、"agent" 或 "default"。
+    """
+    if task_name.startswith("parse"):
+        return "parse"
+    elif task_name.startswith("workflow"):
+        return "workflow"
+    elif task_name.startswith("agent"):
+        return "agent"
+    return "default"
