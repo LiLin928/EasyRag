@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     opensandbox_memory_mb: int = 512
     opensandbox_cpu: float = 1.0
 
+    # 告警配置
+    alert_email: str | None = None
+    slack_webhook_url: str | None = None
+    dingtalk_webhook_url: str | None = None
+
 
 settings = Settings()
 

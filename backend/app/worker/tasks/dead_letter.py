@@ -244,12 +244,49 @@ class DeadLetterQueue:
     
     @staticmethod
     async def get_dlq_stats() -> Dict[str, Any]:
-        """获取死信队列统计"""
-        # TODO: 从数据库统计
+        """获取死信队列统计。
+
+        Returns:
+            包含以下键的字典：
+            - total_failed: 待处理失败任务总数
+            - by_task_type: 按任务类型统计
+            - last_24h: 最近 24 小时新增失败任务数
+        """
+        from app.models.dead_letter import DeadLetterTaskModel, TaskStatus
+        from sqlalchemy import func
+
+        async with async_session() as session:
+            # 总数（仅统计 PENDING 状态）
+            total_result = await session.execute(
+                select(func.count(DeadLetterTaskModel.id))
+                .where(DeadLetterTaskModel.status == TaskStatus.PENDING.value)
+            )
+            total_failed = total_result.scalar()
+
+            # 按任务类型统计（仅 PENDING 状态）
+            type_result = await session.execute(
+                select(
+                    DeadLetterTaskModel.task_name,
+                    func.count(DeadLetterTaskModel.id)
+                )
+                .where(DeadLetterTaskModel.status == TaskStatus.PENDING.value)
+                .group_by(DeadLetterTaskModel.task_name)
+            )
+            by_task_type = dict(type_result.all())
+
+            # 最近 24 小时（仅 PENDING 状态）
+            from datetime import timedelta
+            recent_result = await session.execute(
+                select(func.count(DeadLetterTaskModel.id))
+                .where(DeadLetterTaskModel.status == TaskStatus.PENDING.value)
+                .where(DeadLetterTaskModel.created_at >= datetime.utcnow() - timedelta(hours=24))
+            )
+            last_24h = recent_result.scalar()
+
         return {
-            "total_failed": 0,
-            "by_task_type": {},
-            "last_24h": 0,
+            "total_failed": total_failed,
+            "by_task_type": by_task_type,
+            "last_24h": last_24h,
         }
 
 
@@ -289,10 +326,9 @@ def handle_task_failure(sender, task_id, exception, args, kwargs, traceback, ein
 # 死信队列监控任务
 @shared_task(name="dlq.monitor")
 def monitor_dead_letter_queue():
-    """
-    定时监控死信队列
+    """定时监控死信队列。
 
-    每小时检查一次死信队列，发送告警
+    每小时检查一次死信队列，发送告警。
     """
 
     async def _check():
@@ -305,8 +341,13 @@ def monitor_dead_letter_queue():
                 f"last_24h={stats['last_24h']}"
             )
 
-            # TODO: 发送邮件/Slack 告警
-            # await send_alert(f"Dead Letter Queue has {stats['total_failed']} tasks")
+            # 发送告警（邮件/Slack/钉钉等）
+            await _send_alert(
+                title="EasyRAG 死信队列告警",
+                message=f"当前有 {stats['total_failed']} 个失败任务待处理，"
+                        f"最近 24 小时新增 {stats['last_24h']} 个。",
+                details=stats
+            )
 
     # 安全地运行异步代码
     try:
@@ -318,11 +359,75 @@ def monitor_dead_letter_queue():
     loop.run_until_complete(_check())
 
 
+async def _send_alert(title: str, message: str, details: dict):
+    """发送告警通知。
+
+    支持多种告警渠道：邮件、Slack、钉钉等。
+
+    Args:
+        title: 告警标题
+        message: 告警消息
+        details: 详细信息
+    """
+    from app.config import settings
+
+    # 邮件告警
+    alert_email = getattr(settings, "alert_email", None)
+    if alert_email:
+        try:
+            # TODO: 集成邮件发送服务
+            # await send_email(to=alert_email, subject=title, body=message)
+            logger.info(f"Alert email would be sent to {alert_email}: {message}")
+        except Exception as e:
+            logger.error(f"Failed to send alert email: {e}")
+
+    # Slack Webhook
+    slack_webhook = getattr(settings, "slack_webhook_url", None)
+    if slack_webhook:
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    slack_webhook,
+                    json={
+                        "text": title,
+                        "attachments": [
+                            {
+                                "text": message,
+                                "fields": [
+                                    {"title": k, "value": str(v), "short": True}
+                                    for k, v in details.items()
+                                ]
+                            }
+                        ]
+                    }
+                )
+            logger.info("Alert sent to Slack")
+        except Exception as e:
+            logger.error(f"Failed to send Slack alert: {e}")
+
+    # 钉钉 Webhook
+    dingtalk_webhook = getattr(settings, "dingtalk_webhook_url", None)
+    if dingtalk_webhook:
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    dingtalk_webhook,
+                    json={
+                        "msgtype": "text",
+                        "text": {"content": f"{title}\n\n{message}"}
+                    }
+                )
+            logger.info("Alert sent to DingTalk")
+        except Exception as e:
+            logger.error(f"Failed to send DingTalk alert: {e}")
+
+
 # 死信队列清理任务
 @shared_task(name="dlq.cleanup")
 def cleanup_old_dlq_tasks(days: int = 30):
-    """
-    清理过期的死信队列任务
+    """清理过期的死信队列任务。
 
     Args:
         days: 保留天数，默认 30 天
@@ -333,13 +438,20 @@ def cleanup_old_dlq_tasks(days: int = 30):
         cutoff = datetime.utcnow() - timedelta(days=days)
         logger.info(f"Cleaning up DLQ tasks older than {cutoff}")
 
-        # TODO: 从数据库删除旧任务
-        # async with async_session() as session:
-        #     await session.execute(
-        #         delete(DeadLetterTaskModel)
-        #         .where(DeadLetterTaskModel.created_at < cutoff)
-        #     )
-        #     await session.commit()
+        async with async_session() as session:
+            from sqlalchemy import delete
+            from app.models.dead_letter import DeadLetterTaskModel, TaskStatus
+
+            # 只删除已处理的任务（retried/ignored）
+            result = await session.execute(
+                delete(DeadLetterTaskModel)
+                .where(DeadLetterTaskModel.created_at < cutoff)
+                .where(DeadLetterTaskModel.status.in_([TaskStatus.RETRIED.value, TaskStatus.IGNORED.value]))
+            )
+            deleted = result.rowcount
+            await session.commit()
+
+            logger.info(f"Deleted {deleted} old DLQ tasks")
 
     # 安全地运行异步代码
     try:
