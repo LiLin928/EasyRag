@@ -27,6 +27,7 @@ celery_app = Celery(
         "app.worker.tasks.workflow_tasks",
         "app.worker.tasks.agent_tasks",
         "app.worker.tasks.dead_letter",  # 死信队列任务
+        "app.worker.tasks.sse_cleanup",  # SSE 连接清理任务
     ],
 )
 
@@ -100,6 +101,10 @@ celery_app.conf.beat_schedule = {
         "task": "dlq.cleanup",
         "schedule": crontab(hour=2, minute=0),  # 每天凌晨 2 点执行
         "args": (30,),  # 保留 30 天
+    },
+    "cleanup-sse": {
+        "task": "sse.cleanup_expired",
+        "schedule": crontab(minute="*/5"),  # 每 5 分钟执行
     },
 }
 
