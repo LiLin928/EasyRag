@@ -6,5 +6,6 @@
 - 业务层：文档解析、工作流、Agent 对话
 """
 from app.core.metrics.app_metrics import setup_app_metrics
+from app.core.metrics.storage_metrics import StorageMetrics
 
-__all__ = ["setup_app_metrics"]
+__all__ = ["setup_app_metrics", "StorageMetrics"]
