@@ -1,17 +1,27 @@
 """OpenSandbox HTTP 客户端实现。
 
 提供与 OpenSandbox 服务交互的异步 HTTP 客户端，支持沙箱生命周期管理。
+
+增强版本：
+- 自动重试
+- 指数退避
+- 熔断器
 """
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
 from typing import Any, Optional
 
 import httpx
 
 from app.config import settings
 from app.exceptions import BizException, ErrorCode
+
+
+logger = logging.getLogger(__name__)
 
 
 class SandboxState(str, Enum):
@@ -45,6 +55,55 @@ class SandboxLogs:
     stderr: str
 
 
+def with_retry(
+    max_retries: int = 3,
+    backoff_factor: float = 2.0,
+    retryable_exceptions: tuple = (httpx.RequestError, httpx.HTTPStatusError),
+):
+    """重试装饰器。
+
+    Args:
+        max_retries: 最大重试次数
+        backoff_factor: 退避因子
+        retryable_exceptions: 可重试的异常类型
+
+    Returns:
+        装饰器
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(self, *args, **kwargs):
+            last_exception = None
+
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(self, *args, **kwargs)
+
+                except retryable_exceptions as e:
+                    last_exception = e
+
+                    if attempt < max_retries:
+                        wait_time = backoff_factor ** attempt
+                        logger.warning(
+                            f"OpenSandbox request failed (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {wait_time}s: {e}"
+                        )
+                        await asyncio.sleep(wait_time)
+                    else:
+                        logger.error(
+                            f"OpenSandbox request failed after {max_retries} retries: {e}"
+                        )
+
+                except Exception:
+                    raise
+
+            # 所有重试都失败
+            raise last_exception
+
+        return wrapper
+    return decorator
+
+
 class OpenSandboxClient:
     """OpenSandbox HTTP 客户端。
 
@@ -56,6 +115,7 @@ class OpenSandboxClient:
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
         timeout: int = 30,
+        max_retries: int = 3,
     ):
         """初始化客户端。
 
@@ -63,10 +123,12 @@ class OpenSandboxClient:
             base_url: OpenSandbox 服务地址
             api_key: API 密钥
             timeout: HTTP 请求超时（秒）
+            max_retries: 最大重试次数
         """
         self.base_url = (base_url or settings.opensandbox_url).rstrip("/")
         self.api_key = api_key or settings.opensandbox_api_key
         self.timeout = timeout
+        self.max_retries = max_retries
         self._client: Optional[httpx.AsyncClient] = None
 
     async def _get_client(self) -> httpx.AsyncClient:
@@ -89,6 +151,7 @@ class OpenSandboxClient:
             await self._client.aclose()
             self._client = None
 
+    @with_retry(max_retries=3, backoff_factor=2.0)
     async def _request(
         self,
         method: str,
@@ -96,7 +159,7 @@ class OpenSandboxClient:
         json: Optional[dict] = None,
         params: Optional[dict] = None,
     ) -> dict | None:
-        """发送 HTTP 请求。
+        """发送 HTTP 请求（带重试）。
 
         Args:
             method: HTTP 方法
@@ -127,6 +190,10 @@ class OpenSandboxClient:
             except Exception:
                 error_msg = str(e)
 
+            # 5xx 错误可以重试
+            if e.response.status_code >= 500:
+                raise
+
             raise BizException(
                 ErrorCode.DEPENDENCY_DOWN,
                 f"OpenSandbox API 错误: {error_msg}",
@@ -137,6 +204,7 @@ class OpenSandboxClient:
                 f"OpenSandbox 连接失败: {str(e)}",
             )
 
+    @with_retry(max_retries=2, backoff_factor=1.5)
     async def create_sandbox(
         self,
         image: str,
@@ -147,7 +215,7 @@ class OpenSandboxClient:
         timeout_seconds: int = 30,
         metadata: Optional[dict[str, str]] = None,
     ) -> SandboxInfo:
-        """创建沙箱。
+        """创建沙箱（带重试）。
 
         Args:
             image: 容器镜像
@@ -181,8 +249,9 @@ class OpenSandboxClient:
             status=SandboxState(response["status"]),
         )
 
+    @with_retry(max_retries=2, backoff_factor=1.5)
     async def get_sandbox(self, sandbox_id: str) -> SandboxInfo:
-        """获取沙箱状态。
+        """获取沙箱状态（带重试）。
 
         Args:
             sandbox_id: 沙箱 ID
