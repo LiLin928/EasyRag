@@ -112,12 +112,17 @@ async def upload(
     await storage.put(key, data)
 
     # Submit to Celery queue
-    celery_app.send_task(
-        "app.worker.tasks.parse_tasks.parse_document",  # 完整的任务路径
-        args=[str(document.id), key, str(kbId)],
-        queue="parse",
-        task_id=task_id,
-    )
+    try:
+        celery_app.send_task(
+            "app.worker.tasks.parse_tasks.parse_document",  # 完整的任务路径
+            args=[doc_id, key, str(kb.id)],
+            queue="parse",
+            task_id=task_id,
+        )
+    except Exception as e:
+        # Celery 任务提交失败不影响文档上传成功
+        import logging
+        logging.error(f"Failed to submit Celery task: {e}")
 
     return ok({"task_id": task_id, "doc_id": doc_id})
 
@@ -190,12 +195,23 @@ async def detail(doc_id: str, me=Depends(get_current_user)):
 
 @router.delete("/documents/{doc_id}")
 async def delete_doc(doc_id: str, me=Depends(get_current_user)):
+    # 先获取文件键
     async with async_session() as session:
         document = await asset_service._document_from(session, doc_id, me.id)
         key = document.file_key
+
+    # 删除数据库记录
     await asset_service.delete_document(document)
+
+    # 删除存储文件
     storage = get_storage()
-    await storage.delete(key)
+    try:
+        await storage.delete(key)
+    except Exception as e:
+        # 存储删除失败不影响数据库记录删除
+        import logging
+        logging.error(f"Failed to delete file from storage: {e}")
+
     return ok({"success": True})
 
 
