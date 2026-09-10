@@ -15,6 +15,10 @@ def setup_app_metrics(app):
     if not settings.prometheus_enabled:
         return
 
+    # 设置环境变量以启用 Prometheus 指标
+    import os
+    os.environ["PROMETHEUS_ENABLED"] = "true"
+
     instrumentator = Instrumentator(
         should_group_status_codes=True,
         should_ignore_untemplated=True,
