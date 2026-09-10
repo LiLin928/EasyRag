@@ -152,29 +152,6 @@ async def _parse_document_async(
 
     logger.info(f"Parse task completed: doc_id={doc_id}")
     return result
-        return result
-        
-    except Exception as exc:
-        logger.error(f"Parse task failed: doc_id={doc_id}, error={exc}")
-        
-        # 发布失败事件
-        _publish_sync(stream_key, "task_failed", {
-            "doc_id": doc_id,
-            "error": str(exc),
-            "retry_count": self.request.retries
-        })
-        
-        # 重试
-        if self.request.retries < self.max_retries:
-            _publish_sync(stream_key, "task_retrying", {
-                "doc_id": doc_id,
-                "retry_count": self.request.retries + 1,
-                "max_retries": self.max_retries
-            })
-            raise self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
-        
-        # 最终失败
-        raise
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)

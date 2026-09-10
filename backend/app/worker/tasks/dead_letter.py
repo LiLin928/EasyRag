@@ -40,11 +40,31 @@ class DeadLetterTask:
     max_retries: int
     
     def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式。
+
+        Returns:
+            包含所有属性的字典，用于序列化。
+
+        Raises:
+            不会抛出异常，使用安全的序列化方法。
+        """
+        try:
+            args_json = json.dumps(self.args, default=str)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize args: {e}, using empty list")
+            args_json = json.dumps([])
+
+        try:
+            kwargs_json = json.dumps(self.kwargs, default=str)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize kwargs: {e}, using empty dict")
+            kwargs_json = json.dumps({})
+
         return {
             "task_id": self.task_id,
             "task_name": self.task_name,
-            "args": json.dumps(self.args, default=str),
-            "kwargs": json.dumps(self.kwargs, default=str),
+            "args": args_json,
+            "kwargs": kwargs_json,
             "exception": self.exception,
             "traceback": self.traceback,
             "timestamp": self.timestamp.isoformat(),
@@ -67,8 +87,28 @@ class DeadLetterQueue:
         retry_count: int,
         max_retries: int
     ):
-        """将失败任务添加到死信队列"""
-        
+        """将失败任务添加到死信队列。
+
+        先将任务持久化到数据库，成功后再发布到 Redis Streams。
+        如果数据库保存失败，记录错误但不发布事件，避免数据不一致。
+
+        Args:
+            task_id: Celery 任务 ID。
+            task_name: 任务名称。
+            args: 任务位置参数。
+            kwargs: 任务关键字参数。
+            exception: 异常实例。
+            traceback_str: 堆栈跟踪字符串。
+            retry_count: 当前重试次数。
+            max_retries: 最大重试次数。
+
+        Returns:
+            None
+
+        Raises:
+            不会抛出异常，所有错误都会被捕获并记录。
+        """
+
         dl_task = DeadLetterTask(
             task_id=task_id,
             task_name=task_name,
@@ -80,8 +120,22 @@ class DeadLetterQueue:
             retry_count=retry_count,
             max_retries=max_retries
         )
-        
-        # 1. 记录到数据库
+
+        # 安全序列化 args 和 kwargs
+        try:
+            args_json = json.dumps(args, default=str)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize args for {task_id}: {e}, using empty list")
+            args_json = json.dumps([])
+
+        try:
+            kwargs_json = json.dumps(kwargs, default=str)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize kwargs for {task_id}: {e}, using empty dict")
+            kwargs_json = json.dumps({})
+
+        # 1. 记录到数据库（必须成功）
+        db_success = False
         try:
             async with async_session() as session:
                 from app.models.dead_letter import DeadLetterTaskModel
@@ -89,8 +143,8 @@ class DeadLetterQueue:
                 db_task = DeadLetterTaskModel(
                     task_id=task_id,
                     task_name=task_name,
-                    args=json.dumps(args, default=str),
-                    kwargs=json.dumps(kwargs, default=str),
+                    args=args_json,
+                    kwargs=kwargs_json,
                     exception=str(exception),
                     traceback=traceback_str,
                     retry_count=retry_count,
@@ -99,20 +153,26 @@ class DeadLetterQueue:
                 )
                 session.add(db_task)
                 await session.commit()
+                db_success = True
                 logger.info(f"DLQ task saved to DB: {task_id}")
         except Exception as e:
-            logger.error(f"Failed to save DLQ task to DB: {e}")
-        
-        # 2. 发布到 Streams
-        try:
-            await publish_event(
-                DEAD_LETTER_STREAM,
-                "task_failed_permanently",
-                dl_task.to_dict()
-            )
-        except Exception as e:
-            logger.error(f"Failed to publish DLQ event: {e}")
-        
+            logger.error(f"Failed to save DLQ task to DB: {e}, task_id={task_id}")
+            # 不继续发布到 Streams，避免数据不一致
+
+        # 2. 仅在数据库保存成功后，发布到 Streams
+        if db_success:
+            try:
+                await publish_event(
+                    DEAD_LETTER_STREAM,
+                    "task_failed_permanently",
+                    dl_task.to_dict()
+                )
+            except Exception as e:
+                logger.error(f"Failed to publish DLQ event for {task_id}: {e}")
+                # Streams 发布失败不影响已入库的数据
+        else:
+            logger.warning(f"Skipping Streams publish for {task_id} due to DB save failure")
+
         # 3. 记录日志
         logger.error(
             f"Task moved to DLQ: {task_name}[{task_id}], "
@@ -175,16 +235,16 @@ def monitor_dead_letter_queue():
     
     async def _check():
         stats = await DeadLetterQueue.get_dlq_stats()
-        
+
         # 如果有失败任务，发送告警
         if stats["total_failed"] > 0:
             logger.warning(
-                f"DLQ Alert: {stats[\'total_failed\']} failed tasks in queue, "
-                f"last_24h={stats[\'last_24h\']}"
+                f"DLQ Alert: {stats['total_failed']} failed tasks in queue, "
+                f"last_24h={stats['last_24h']}"
             )
-            
+
             # TODO: 发送邮件/Slack 告警
-            # await send_alert(f"Dead Letter Queue has {stats[\'total_failed\']} tasks")
+            # await send_alert(f"Dead Letter Queue has {stats['total_failed']} tasks")
     
     asyncio.run(_check())
 
