@@ -1,4 +1,8 @@
-"""本地文件系统存储实现。"""
+"""本地文件系统存储实现。
+
+增强版本：
+- 指标采集
+"""
 import os
 import shutil
 from pathlib import Path
@@ -6,6 +10,7 @@ from typing import Optional, List
 import logging
 
 from app.exceptions import BizException, ErrorCode
+from app.core.metrics.storage_metrics import StorageMetrics
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +48,7 @@ class LocalStorage:
             raise BizException(ErrorCode.PARAM_ERROR, "非法文件路径")
         return path
 
+    @StorageMetrics.track_operation("upload")
     async def upload(
         self,
         key: str,
@@ -70,6 +76,7 @@ class LocalStorage:
         logger.info(f"Uploaded to local storage: {key} ({len(content)} bytes)")
         return str(file_path)
     
+    @StorageMetrics.track_operation("download")
     async def download(self, key: str) -> bytes:
         """从本地存储下载文件。
 
@@ -93,6 +100,7 @@ class LocalStorage:
         logger.info(f"Downloaded from local storage: {key} ({len(data)} bytes)")
         return data
 
+    @StorageMetrics.track_operation("delete")
     async def delete(self, key: str) -> None:
         """从本地存储删除文件。
 
@@ -105,6 +113,7 @@ class LocalStorage:
             file_path.unlink()
             logger.info(f"Deleted from local storage: {key}")
 
+    @StorageMetrics.track_operation("exists")
     async def exists(self, key: str) -> bool:
         """检查本地文件是否存在。
 
@@ -149,6 +158,7 @@ class LocalStorage:
             "metadata": {},
         }
 
+    @StorageMetrics.track_operation("list")
     async def list_objects(
         self,
         prefix: str = "",
@@ -183,6 +193,7 @@ class LocalStorage:
         logger.info(f"Listed {len(objects)} objects with prefix '{prefix}'")
         return objects
 
+    @StorageMetrics.track_operation("copy")
     async def copy(
         self,
         source_key: str,

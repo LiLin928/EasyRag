@@ -4,6 +4,7 @@
 - 详细错误分类
 - 自动重试
 - 连接池管理
+- 指标采集
 """
 import io
 import asyncio
@@ -16,6 +17,7 @@ from minio.error import S3Error
 
 from app.config import settings
 from app.exceptions import BizException, ErrorCode
+from app.core.metrics.storage_metrics import StorageMetrics
 
 
 logger = logging.getLogger(__name__)
@@ -93,6 +95,7 @@ class MinioStorage:
                 operation="ensure_bucket"
             )
 
+    @StorageMetrics.track_operation("upload")
     async def upload(
         self,
         key: str,
@@ -162,6 +165,7 @@ class MinioStorage:
                 key=key
             )
 
+    @StorageMetrics.track_operation("download")
     async def download(self, key: str) -> bytes:
         """从 MinIO 下载文件。
 
@@ -217,6 +221,7 @@ class MinioStorage:
                 key=key
             )
 
+    @StorageMetrics.track_operation("delete")
     async def delete(self, key: str) -> None:
         """从 MinIO 删除文件。
 
@@ -258,6 +263,7 @@ class MinioStorage:
             # 删除失败不抛出异常，只记录日志
             logger.warning(f"Delete failed but continuing: {e}")
 
+    @StorageMetrics.track_operation("exists")
     async def exists(self, key: str) -> bool:
         """检查 MinIO 对象是否存在。
 
@@ -320,6 +326,7 @@ class MinioStorage:
             logger.error(f"Failed to get metadata from MinIO: {key}, error: {e}")
             return None
 
+    @StorageMetrics.track_operation("list")
     async def list_objects(
         self,
         prefix: str = "",
@@ -349,6 +356,7 @@ class MinioStorage:
             logger.error(f"Failed to list objects in MinIO: {e}")
             return []
 
+    @StorageMetrics.track_operation("copy")
     async def copy(
         self,
         source_key: str,
