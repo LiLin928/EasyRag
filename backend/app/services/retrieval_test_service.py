@@ -608,8 +608,11 @@ async def start_run(
                 raise BizException(
                     ErrorCode.PARAM_ERROR, "test case IDs cannot contain duplicates"
                 )
+            # 空数组等同于未指定
             if selected_ids:
                 case_filters.append(RetrievalTestCase.id.in_(selected_ids))
+            else:
+                selected_ids = None  # 空数组视为未指定
         cases = (
             await session.execute(
                 select(RetrievalTestCase)
@@ -622,10 +625,23 @@ async def start_run(
             )
         ).scalars().all()
         if selected_ids is not None and len(cases) != len(set(selected_ids)):
-            raise BizException(
-                ErrorCode.PARAM_ERROR,
-                "selected cases must belong to the enabled test set",
-            )
+            # selected_ids 不为 None 说明用户指定了具体的测试用例
+            # 查询条件包含了 RetrievalTestCase.id.in_(selected_ids)
+            # 所以 len(cases) 应该 <= len(set(selected_ids))
+            missing_count = len(set(selected_ids)) - len(cases)
+            if missing_count > 0:
+                raise BizException(
+                    ErrorCode.PARAM_ERROR,
+                    f"{missing_count} selected test case(s) are disabled or do not belong to this test set. "
+                    f"Please enable the test cases or remove them from the selection.",
+                )
+            else:
+                # 理论上不应该发生，但作为防御性编程
+                raise BizException(
+                    ErrorCode.PARAM_ERROR,
+                    "Unexpected error: query returned more cases than selected. "
+                    "Please contact support.",
+                )
         if not cases:
             raise BizException(
                 ErrorCode.PARAM_ERROR, "No enabled retrieval test cases to run"
@@ -902,10 +918,18 @@ async def _resolve_models(config_snapshot: dict):
                     ErrorCode.PARAM_ERROR, "Embedding model is unavailable"
                 )
             dim = (embedding.params or {}).get("dim")
-            if dim is not None and dim != 1024:
-                raise BizException(
-                    ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024"
-                )
+            # 支持字符串和整数类型的维度参数
+            if dim is not None:
+                try:
+                    dim_value = int(dim)
+                    if dim_value != 1024:
+                        raise BizException(
+                            ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024"
+                        )
+                except (ValueError, TypeError) as e:
+                    raise BizException(
+                        ErrorCode.PARAM_ERROR, f"Invalid embedding model dimension: {dim}"
+                    ) from e
         if rerank_info:
             rerank = models.get(str(rerank_info["id"]))
             if rerank is None or not rerank.enabled or rerank.grp != "rerank":
