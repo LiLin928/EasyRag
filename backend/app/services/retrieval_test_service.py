@@ -709,6 +709,10 @@ async def start_run(
         ]
         session.add(run)
         session.add_all(results)
+
+        # 保存可能需要的值，避免在异常处理中触发延迟加载
+        test_set_id_value = test_set.id
+
         try:
             await session.commit()
         except IntegrityError:
@@ -717,7 +721,7 @@ async def start_run(
                 await session.execute(
                     select(RetrievalTestRun)
                     .where(
-                        RetrievalTestRun.test_set_id == test_set.id,
+                        RetrievalTestRun.test_set_id == test_set_id_value,
                         RetrievalTestRun.status.in_(_ACTIVE_RUN_STATUSES),
                     )
                     .order_by(RetrievalTestRun.created_at.desc(), RetrievalTestRun.id)
