@@ -807,6 +807,7 @@ def _normalize_candidates(chunks: list[dict]) -> list[dict]:
                 "section_path": chunk.get("section_path"),
                 "page_number": chunk.get("page_number"),
                 "char_count": chunk.get("char_count"),
+                "content": chunk.get("content"),  # ← 添加内容字段
                 "vector_score": chunk.get("vector_score"),
                 "keyword_score": chunk.get("keyword_score"),
                 "vector_rank": chunk.get("vector_rank"),

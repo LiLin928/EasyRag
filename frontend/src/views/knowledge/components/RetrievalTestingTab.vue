@@ -177,6 +177,12 @@ const configSnapshot = computed(() => currentRun.value?.config_snapshot)
           <el-table v-if="candidates.length" :data="candidates" stripe size="small">
             <el-table-column label="Rank" prop="rank" width="60" align="center" />
             <el-table-column label="文档" prop="document_name" min-width="140" show-overflow-tooltip />
+            <el-table-column label="内容" min-width="200" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span v-if="row.content">{{ row.content.substring(0, 100) }}{{ row.content.length > 100 ? '...' : '' }}</span>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="章节" prop="section_path" width="120" show-overflow-tooltip>
               <template #default="{ row }">{{ row.section_path || '-' }}</template>
             </el-table-column>
