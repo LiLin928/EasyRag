@@ -24,7 +24,9 @@ class DocumentDispatcher:
     PARSER_MAP: Dict[str, Type[BaseParser]] = {
         'pdf': PDFParser,
         'docx': DOCXParser,
-        'doc': DOCXParser,  # 转换为 docx
+        # 注意：不支持 Word 97-2003 格式 (.doc)
+        # 原因：python-docx 仅支持 .docx (ZIP 格式)
+        # 如需支持 .doc，请使用方案 B (textract) 或方案 C (pywin32)
         'xlsx': XLSXParser,
         'xls': XLSXParser,
         'md': MarkdownParser,
@@ -36,10 +38,26 @@ class DocumentDispatcher:
         self._parsers: Dict[str, BaseParser] = {}
 
     def _get_parser_for_extension(self, ext: str) -> BaseParser:
-        """获取指定扩展名的解析器"""
+        """获取指定扩展名的解析器
+
+        Args:
+            ext: 文件扩展名（不含点）
+
+        Returns:
+            对应的解析器实例
+
+        Raises:
+            ValueError: 不支持的文件类型
+        """
         if ext not in self._parsers:
             parser_class = self.PARSER_MAP.get(ext)
             if not parser_class:
+                # 特殊提示 .doc 文件
+                if ext == 'doc':
+                    raise ValueError(
+                        "不支持 Word 97-2003 格式（.doc），"
+                        "请转换为 .docx 格式后再上传，或联系管理员添加支持"
+                    )
                 raise ValueError(f"Unsupported file type: {ext}")
             self._parsers[ext] = parser_class()
 

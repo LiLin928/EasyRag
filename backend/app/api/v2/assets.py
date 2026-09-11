@@ -23,7 +23,10 @@ from app.core.celery_app import celery_app
 
 router = APIRouter(tags=["assets"])
 
-ALLOWED_EXT = {"pdf", "docx", "doc", "xlsx", "xls", "md", "txt", "markdown"}
+# 支持的文件格式
+# 注意：不支持 Word 97-2003 格式 (.doc)
+# 原因：python-docx 仅支持 .docx (ZIP 格式)
+ALLOWED_EXT = {"pdf", "docx", "xlsx", "xls", "md", "txt", "markdown"}
 MAX_SIZE = 50 * 1024 * 1024
 
 
@@ -67,7 +70,32 @@ async def upload(
     mode: str = Form("fast"),
     me=Depends(get_current_user),
 ):
+    """上传文档到知识库
+
+    支持的文件格式：
+    - PDF (.pdf)
+    - Word 2007+ (.docx) - 注意：不支持 Word 97-2003 (.doc)
+    - Excel (.xlsx, .xls)
+    - Markdown (.md, .markdown)
+    - 纯文本 (.txt)
+
+    Args:
+        file: 上传的文件
+        kbId: 知识库 ID
+        mode: 解析模式（fast/standard）
+
+    Returns:
+        {"task_id": "解析任务ID", "doc_id": "文档ID"}
+    """
     ext = file.filename.rsplit(".", 1)[-1].lower()
+
+    # 特殊提示 .doc 文件
+    if ext == "doc":
+        raise BizException(
+            ErrorCode.UNSUPPORTED_FILE,
+            "不支持 Word 97-2003 格式（.doc），请转换为 .docx 格式后再上传"
+        )
+
     if ext not in ALLOWED_EXT:
         raise BizException(ErrorCode.UNSUPPORTED_FILE, f"不支持的格式: {ext}")
     data = await file.read()
@@ -266,7 +294,19 @@ async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
     if not kb:
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该知识库")
 
-    return ok({"queued": True})
+    # 提交重建索引任务到 Celery 队列
+    try:
+        from app.core.celery_app import celery_app
+        task = celery_app.send_task(
+            "app.worker.tasks.parse_tasks.reembed_chunks",
+            args=[str(kb_uuid), body.document_ids, body.chunk_ids],
+            queue="parse",
+        )
+        return ok({"queued": True, "task_id": task.id})
+    except Exception as e:
+        import logging
+        logging.error(f"Failed to submit reembed task: {e}")
+        raise BizException(ErrorCode.INTERNAL_ERROR, "提交重建索引任务失败")
 
 
 @router.patch("/chunks/{chunk_id}/metadata")

@@ -49,3 +49,37 @@ async def test_parser_selection(dispatcher):
     assert dispatcher._get_parser_for_extension('docx').__class__.__name__ == 'DOCXParser'
     assert dispatcher._get_parser_for_extension('xlsx').__class__.__name__ == 'XLSXParser'
     assert dispatcher._get_parser_for_extension('md').__class__.__name__ == 'MarkdownParser'
+
+
+@pytest.mark.asyncio
+async def test_doc_file_not_supported(dispatcher):
+    """测试 .doc 文件不支持（Word 97-2003 格式）
+
+    验证：
+    1. .doc 文件会抛出 ValueError
+    2. 错误信息包含转换建议
+    """
+    # 测试解析器选择
+    with pytest.raises(ValueError) as exc_info:
+        dispatcher._get_parser_for_extension('doc')
+
+    error_msg = str(exc_info.value)
+    assert "Word 97-2003" in error_msg
+    assert ".docx" in error_msg
+
+    # 测试完整调度流程
+    # 模拟 .doc 文件（OLE 格式）
+    fake_doc_content = bytes([
+        0xD0, 0xCF, 0x11, 0xE0,  # OLE magic
+        0xA1, 0xB1, 0x1A, 0xE1,
+    ]) + b'\x00' * 100
+
+    with pytest.raises(ValueError) as exc_info:
+        await dispatcher._dispatch_from_data(
+            fake_doc_content,
+            'test.doc',
+            'test-doc-id'
+        )
+
+    error_msg = str(exc_info.value)
+    assert "Word 97-2003" in error_msg
