@@ -697,9 +697,13 @@ async def start_run(
             override_config=clean_override,
             total_cases=len(cases),
         )
+        session.add(run)
+        # 先 flush 以生成 run.id，然后再创建关联的 results
+        await session.flush()
+
         results = [
             RetrievalTestCaseResult(
-                run_id=run.id,
+                run_id=run.id,  # 现在 run.id 已经有值了
                 case_id=case.id,
                 query=case.query,
                 status="pending",
@@ -707,7 +711,6 @@ async def start_run(
             )
             for case in cases
         ]
-        session.add(run)
         session.add_all(results)
 
         # 保存可能需要的值，避免在异常处理中触发延迟加载
