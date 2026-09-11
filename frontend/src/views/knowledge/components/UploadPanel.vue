@@ -15,17 +15,19 @@ const emit = defineEmits<{
 
 const knowledgeStore = useKnowledgeStore()
 
-const parseMode = ref<'fast' | 'precision'>('fast')
-const scene = ref('')
+// 暂时注释，等后端实现差异化解析逻辑后再启用
+// const parseMode = ref<'fast' | 'precision'>('fast')
+// const scene = ref('')
 const uploading = ref(false)
 
-const sceneOptions = [
-  { label: '招投标', value: 'bidding' },
-  { label: '合同', value: 'contract' },
-  { label: '通用', value: 'general' },
-  { label: '技术', value: 'tech' },
-  { label: '产品', value: 'product' }
-]
+// 暂时注释，等后端实现场景功能后再启用
+// const sceneOptions = [
+//   { label: '招投标', value: 'bidding' },
+//   { label: '合同', value: 'contract' },
+//   { label: '通用', value: 'general' },
+//   { label: '技术', value: 'tech' },
+//   { label: '产品', value: 'product' }
+// ]
 
 async function handleUpload(options: any) {
   const file = options.file as File
@@ -43,18 +45,23 @@ async function handleUpload(options: any) {
   }
   
   uploading.value = true
-  
+
   try {
+    // 暂时使用固定值，等后端实现差异化解析逻辑后再启用用户选择
     const tasks = await knowledgeStore.uploadFiles(
       props.kbId,
       [file],
-      parseMode.value,
-      scene.value || undefined
+      'fast',  // 固定使用快速模式
+      undefined  // 暂不使用场景
     )
-    
+
     ElMessage.success('文件上传成功，正在解析...')
-    
-    // 开始轮询解析状态
+
+    // 上传成功后立即通知父组件刷新文档列表
+    // 这样用户可以立即看到新上传的文档（状态为 pending/parsing）
+    emit('uploaded')
+
+    // 开始轮询解析状态，解析完成后再次刷新
     tasks.forEach(task => {
       knowledgeStore.startPolling(task.task_id, () => {
         emit('uploaded')
@@ -88,7 +95,8 @@ async function handleUpload(options: any) {
         </div>
       </template>
     </el-upload>
-    
+
+    <!-- 暂时注释，等后端实现差异化解析逻辑后再启用
     <div class="upload-options">
       <el-form label-width="80px" size="small">
         <el-form-item label="解析模式">
@@ -97,7 +105,7 @@ async function handleUpload(options: any) {
             <el-radio value="precision">精准模式</el-radio>
           </el-radio-group>
         </el-form-item>
-        
+
         <el-form-item label="关联场景">
           <el-select v-model="scene" placeholder="选择场景（可选）" clearable>
             <el-option
@@ -110,6 +118,7 @@ async function handleUpload(options: any) {
         </el-form-item>
       </el-form>
     </div>
+    -->
   </div>
 </template>
 

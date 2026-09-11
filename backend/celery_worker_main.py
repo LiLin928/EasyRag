@@ -56,8 +56,10 @@ def main():
     os.environ.setdefault("CELERY_WORKER_QUEUES", args.queues)
     
     # 构建 celery 参数
+    # Windows 必须使用 solo pool，prefork 不支持
     celery_args = [
         "worker",
+        "--pool=solo",  # Windows 必须使用 solo
         "-Q", args.queues,
         "-c", str(args.concurrency),
         "-l", args.loglevel,

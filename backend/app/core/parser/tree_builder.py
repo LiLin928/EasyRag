@@ -58,6 +58,8 @@ class TreeBuilder:
                 element_ids=[],
                 children=[]
             )
+            # 将所有元素分配给根节点
+            self._assign_elements_to_nodes(elements, [root])
             return DocumentTree(root=root, nodes=[root])
 
         # 2. 构建层级关系
@@ -122,13 +124,40 @@ class TreeBuilder:
         elements: List[DocumentElement],
         nodes: List[TreeNodeData]
     ):
-        """分配元素到节点"""
-        if not nodes:
+        """分配元素到节点
+
+        每个标题节点包含从它开始到下一个标题之间的所有元素。
+        如果没有标题节点，所有元素分配给传入的节点（通常是根节点）。
+        """
+        if not nodes or not elements:
             return
 
-        # 简化实现：每个标题节点只包含自己
-        # 实际应该包含到下一个标题之间的所有段落
-        pass
+        # 找出所有标题元素的索引
+        heading_indices = []
+        for idx, elem in enumerate(elements):
+            if self._is_heading(elem):
+                heading_indices.append(idx)
+
+        # 如果没有标题，将所有元素分配给第一个节点（通常是根节点）
+        if not heading_indices:
+            for elem in elements:
+                if elem.element_id not in nodes[0].element_ids:
+                    nodes[0].element_ids.append(elem.element_id)
+            return
+
+        # 为每个标题节点分配元素
+        for node_idx, node in enumerate(nodes):
+            # 当前标题的元素索引
+            current_heading_idx = heading_indices[node_idx] if node_idx < len(heading_indices) else len(elements)
+
+            # 下一个标题的元素索引（如果没有下一个标题，则到末尾）
+            next_heading_idx = heading_indices[node_idx + 1] if node_idx + 1 < len(heading_indices) else len(elements)
+
+            # 将当前标题到下一个标题之间的所有元素分配给当前节点
+            for elem_idx in range(current_heading_idx, next_heading_idx):
+                elem = elements[elem_idx]
+                if elem.element_id not in node.element_ids:
+                    node.element_ids.append(elem.element_id)
 
 
 # 保留旧的函数接口以保持向后兼容

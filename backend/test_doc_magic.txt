@@ -1,0 +1,9 @@
+.doc 文件格式分析:
+Magic Number: D0 CF 11 E0 (OLE Compound Document)
+.docx 文件格式:
+Magic Number: 50 4B 03 04 (ZIP 压缩)
+
+问题根源:
+dispatcher.py 第 27 行: doc -> DOCXParser
+但 DOCXParser 使用 python-docx，只能处理 .docx (ZIP)
+不能处理 .doc (OLE)!

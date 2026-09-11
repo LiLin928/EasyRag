@@ -50,7 +50,12 @@ def _uuid(value, label: str) -> uuid.UUID:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    """获取当前 UTC 时间（不带时区标记）
+
+    数据库字段为 TIMESTAMP WITHOUT TIME ZONE，
+    因此返回不带时区的 datetime 对象。
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _validate_name(name) -> str:

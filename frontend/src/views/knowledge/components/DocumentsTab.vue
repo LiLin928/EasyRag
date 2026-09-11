@@ -36,6 +36,7 @@ const editorMetadata = ref<Record<string, unknown>>({})
 const editorMode = ref<'single' | 'batch'>('single')
 const metadataSaving = ref(false)
 const initialized = ref(false)
+const refreshing = ref(false)  // 刷新状态
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const documentFields = computed<MetadataField[]>(() =>
@@ -205,6 +206,18 @@ async function refreshAfterUpload(): Promise<void> {
   await knowledgeStore.loadKbDetail(props.kbId)
   await load()
 }
+
+async function handleRefresh(): Promise<void> {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await knowledgeStore.loadKbDetail(props.kbId)
+    await load()
+    ElMessage.success('刷新成功')
+  } finally {
+    refreshing.value = false
+  }
+}
 </script>
 
 <template>
@@ -249,6 +262,13 @@ async function refreshAfterUpload(): Promise<void> {
           <el-option label="分段数优先" value="chunk_count_desc" />
           <el-option label="召回次数优先" value="recall_count_desc" />
         </el-select>
+        <el-button
+          icon="Refresh"
+          :loading="refreshing"
+          @click="handleRefresh"
+        >
+          刷新
+        </el-button>
       </div>
 
       <div v-if="documentFields.length" class="metadata-filter-bar">

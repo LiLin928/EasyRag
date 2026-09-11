@@ -10,6 +10,7 @@ from langchain.chat_models import init_chat_model
 from langchain.embeddings import init_embeddings
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import BaseChatModel
+from langchain_openai import OpenAIEmbeddings
 from sqlalchemy import select
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
@@ -134,21 +135,34 @@ async def get_model_by_id(model_id, expected_group: str) -> ModelConfig:
 
 
 def _build_embedding(cfg: ModelConfig) -> Embeddings:
+    """构建嵌入模型实例
+
+    支持 OpenAI 兼容的 API（包括硅基流动、DashScope、VLLM 等）
+    """
     dim = (cfg.params or {}).get("dim")
+
+    # OpenAI 及兼容 API（siliconflow, dashscope, vllm 等）
     if cfg.prov in ("openai", "dashscope", "vllm", "siliconflow"):
         kwargs = {
-            "model_provider": "openai",
             "model": cfg.name,
-            "base_url": cfg.url,
-            "api_key": _api_key(cfg),
+            "openai_api_base": cfg.url,  # 使用自定义 base_url
+            "openai_api_key": _api_key(cfg),
         }
-        if dim:
+        # 只有 OpenAI 官方 API 支持 dimensions 参数
+        # 硅基流动、DashScope 等兼容 API 不支持此参数
+        if dim and cfg.prov == "openai" and cfg.url is None:
+            # 只有 OpenAI 官方 API 才传递 dimensions
             kwargs["dimensions"] = int(dim)
-        return init_embeddings(**kwargs)
+        return OpenAIEmbeddings(**kwargs)
+
+    # Ollama 本地模型
     if cfg.prov == "ollama":
-        return init_embeddings(
-            model_provider="ollama", model=cfg.name, base_url=cfg.url
+        from langchain_ollama import OllamaEmbeddings
+        return OllamaEmbeddings(
+            model=cfg.name,
+            base_url=cfg.url
         )
+
     raise BizException(
         ErrorCode.PARAM_ERROR, f"Unsupported embedding provider: {cfg.prov}"
     )
@@ -161,10 +175,18 @@ async def build_embeddings_from_config(cfg: ModelConfig) -> Embeddings:
     if cfg.grp != "embed":
         raise BizException(ErrorCode.PARAM_ERROR, "Model must be in the embed group")
     dim = (cfg.params or {}).get("dim")
-    if dim is not None and dim != 1024:
-        raise BizException(
-            ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024"
-        )
+    # 支持字符串和整数类型的维度参数
+    if dim is not None:
+        try:
+            dim_value = int(dim)
+            if dim_value != 1024:
+                raise BizException(
+                    ErrorCode.PARAM_ERROR, "Embedding model dimension must be 1024"
+                )
+        except (ValueError, TypeError) as e:
+            raise BizException(
+                ErrorCode.PARAM_ERROR, f"Invalid embedding model dimension: {dim}"
+            ) from e
     return _build_embedding(cfg)
 
 
