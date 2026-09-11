@@ -52,5 +52,5 @@ class HybridRetriever(BaseRetriever):
             "chunk_id": str(c.get("id")), "doc_id": str(c.get("document_id")),
             "node_title": c.get("clause_title"), "page_number": c.get("page_number", 1),
             "section_path": c.get("section_path"),
-            "score": c.get("rerank_score", c.get("rrf", 0)),
+            "score": c.get("rerank_score", c.get("rrf_score", c.get("rrf", 0))),
         }) for c in result.chunks]

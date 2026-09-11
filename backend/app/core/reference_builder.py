@@ -11,6 +11,6 @@ def build_references(chunks: list[dict]) -> list[dict]:
              "doc_title": c.get("document_name", ""),
              "node_title": c.get("clause_title") or c.get("section_path") or "",
              "content_preview": (c.get("content") or "")[:80],
-             "score": c.get("rerank_score", c.get("rrf", c.get("score", 0))),
+             "score": c.get("rerank_score", c.get("rrf_score", c.get("rrf", c.get("score", 0)))),
              "type": "text"}
             for i, c in enumerate(chunks)]
