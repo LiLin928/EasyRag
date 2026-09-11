@@ -208,7 +208,7 @@ class RetrievalPipeline:
                 rerank_skipped_reason = "rerank_model_not_bound"
             else:
                 rerank_instance = await self.build_reranker()
-                fused = await reranker.rerank(
+                fused = await reranker.conditional_rerank(
                     query, fused, cfg["rerank_top_n"], rerank_instance
                 )
                 rerank_triggered = True
