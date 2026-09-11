@@ -811,7 +811,7 @@ def _normalize_candidates(chunks: list[dict]) -> list[dict]:
                 "keyword_score": chunk.get("keyword_score"),
                 "vector_rank": chunk.get("vector_rank"),
                 "keyword_rank": chunk.get("fulltext_rank"),
-                "rrf_score": chunk.get("rrf"),
+                "rrf_score": chunk.get("rrf_score") or chunk.get("rrf"),  # ← 兼容两种字段名
                 "rerank_score": chunk.get("rerank_score"),
                 "metadata": chunk.get("metadata") or {},
             }

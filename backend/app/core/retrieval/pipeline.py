@@ -69,6 +69,15 @@ class RetrievalPipeline:
 
     @staticmethod
     def _single_channel(hits: list[dict], channel: str) -> list[dict]:
+        """处理单通道检索结果
+
+        Args:
+            hits: 检索结果列表
+            channel: 通道类型（"vector" 或 "keyword"）
+
+        Returns:
+            统一格式的结果列表，包含 rrf_score 字段
+        """
         score_key = f"{channel}_score"
         rank_key = "vector_rank" if channel == "vector" else "fulltext_rank"
         unused_key = "keyword_score" if channel == "vector" else "vector_score"
@@ -76,7 +85,7 @@ class RetrievalPipeline:
         for rank, hit in enumerate(hits):
             item = {
                 **hit,
-                "rrf": float(hit[score_key]),
+                "rrf_score": float(hit[score_key]),  # ← 使用 "rrf_score" 保持一致
                 rank_key: rank + 1,
                 unused_key: None,
             }
