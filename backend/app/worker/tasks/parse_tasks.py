@@ -399,63 +399,55 @@ async def _save_elements_to_db(elements: list, doc_id: str, tree: "DocumentTree"
 
 
 @celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
-def execute_retrieval_test(self, config_id: int) -> dict:
+def execute_retrieval_test(self, run_id: str) -> dict:
     """
     检索测试任务
 
     执行检索测试并返回结果
 
     Args:
-        config_id: 测试配置 ID
+        run_id: 测试运行 ID
 
     Returns:
         测试结果
     """
-    stream_key = f"retrieval_test:{config_id}"
+    from app.services import retrieval_test_service
+
+    stream_key = f"retrieval_test:{run_id}"
 
     try:
         _publish_sync(stream_key, "task_started", {
-            "config_id": config_id,
+            "run_id": run_id,
             "pct": 0
         })
 
-        # TODO: 执行检索测试
-        # from app.core.retrieval.test_metrics import run_test
-        # results = run_test(config_id)
-
-        _publish_sync(stream_key, "task_progress", {
-            "config_id": config_id,
-            "pct": 50
-        })
-
-        result = {
-            "config_id": config_id,
-            "status": "success",
-            "metrics": {
-                "precision": 0.85,
-                "recall": 0.82,
-                "f1": 0.83
-            }
-        }
+        # 执行检索测试
+        # 使用持久事件循环
+        loop = _get_event_loop()
+        loop.run_until_complete(
+            retrieval_test_service.execute_run(run_id)
+        )
 
         _publish_sync(stream_key, "task_completed", {
-            "config_id": config_id,
-            "pct": 100,
-            "result": result
+            "run_id": run_id,
+            "pct": 100
         })
 
-        return result
+        logger.info(f"Retrieval test completed: run_id={run_id}")
+        return {"run_id": run_id, "status": "success"}
 
     except Exception as exc:
-        logger.error(f"Retrieval test failed: config_id={config_id}, error={exc}")
+        logger.error(f"Retrieval test failed: run_id={run_id}, error={exc}")
 
         _publish_sync(stream_key, "task_failed", {
-            "config_id": config_id,
-            "error": str(exc)
+            "run_id": run_id,
+            "error": str(exc),
+            "retry_count": self.request.retries
         })
 
+        # 重试
         if self.request.retries < self.max_retries:
-            raise self.retry(exc=exc, countdown=30)
+            raise self.retry(exc=exc, countdown=30 * (self.request.retries + 1))
 
         raise
 
