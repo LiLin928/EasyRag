@@ -88,6 +88,13 @@ function fmtScore(v: number | null): string {
         </div>
       </div>
 
+      <div v-if="candidate.content" class="info-section">
+        <h4 class="section-label">内容</h4>
+        <div class="content-box">
+          {{ candidate.content }}
+        </div>
+      </div>
+
       <div class="info-section">
         <h4 class="section-label">评分与排名</h4>
         <el-descriptions :column="2" border size="small">
@@ -182,5 +189,18 @@ function fmtScore(v: number | null): string {
 .expected-list {
   display: flex;
   flex-wrap: wrap;
+}
+
+.content-box {
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #303133;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
 }
 </style>

@@ -178,6 +178,7 @@ export interface RetrievalCandidate {
   section_path: string | null
   page_number: number
   char_count: number
+  content?: string | null
   vector_score: number | null
   keyword_score: number | null
   vector_rank: number | null
