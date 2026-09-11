@@ -90,6 +90,10 @@ function handleViewCase(c: RetrievalTestCase) {
   rightTab.value = 'candidates'
 }
 
+function handleClearRun() {
+  knowledgeStore.clearRunState()
+}
+
 function handleCandidateClick(candidate: RetrievalCandidate) {
   drawerCandidate.value = candidate
   drawerOpen.value = true
@@ -170,6 +174,7 @@ const configSnapshot = computed(() => currentRun.value?.config_snapshot)
             @run-selected="handleRunSelected"
             @run-all="handleRunAll"
             @view-case="handleViewCase"
+            @clear-run="handleClearRun"
           />
         </el-tab-pane>
 

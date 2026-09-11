@@ -89,7 +89,11 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
   async function refreshRun(runId: string): Promise<RetrievalTestRun> {
     const run = await kbApi.getTestRun(runId)
     currentRun.value = run
-    if (isTerminalRun(run)) stopRunPolling()
+    if (isTerminalRun(run)) {
+      stopRunPolling()
+      // 测试完成后加载测试结果
+      await loadRunResults(runId)
+    }
     return run
   }
 

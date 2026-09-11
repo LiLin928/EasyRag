@@ -116,6 +116,7 @@ const emit = defineEmits<{
   'run-selected': [ids: string[]]
   'run-all': []
   'view-case': [c: RetrievalTestCase]
+  'clear-run': []
 }>()
 </script>
 
@@ -140,6 +141,9 @@ const emit = defineEmits<{
           运行选中
         </el-button>
         <el-button size="small" type="primary" @click="emit('run-all')">运行全部</el-button>
+      </template>
+      <template v-else>
+        <el-button size="small" @click="emit('clear-run')">返回用例列表</el-button>
       </template>
     </div>
 
