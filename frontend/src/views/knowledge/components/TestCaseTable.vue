@@ -60,7 +60,12 @@ const filtered = computed(() => {
 const allTags = computed(() => {
   const tags = new Set<string>()
   const source = props.runMode ? knowledgeStore.runResults : knowledgeStore.testCases
-  source.forEach(c => c.tags.forEach(t => tags.add(t)))
+  source.forEach(c => {
+    // 安全检查：确保 tags 存在且是数组
+    if (c.tags && Array.isArray(c.tags)) {
+      c.tags.forEach(t => tags.add(t))
+    }
+  })
   return Array.from(tags)
 })
 

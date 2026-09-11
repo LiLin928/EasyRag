@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>测试 API</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>召回测试 API 测试</h1>
+    <div id="output"></div>
+
+    <script>
+        async function test() {
+            const output = document.getElementById('output');
+            output.innerHTML = '测试中...';
+
+            try {
+                // 登录
+                const loginResp = await fetch('http://localhost:8000/api/v2/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: 'admin', password: 'admin123'})
+                });
+                const loginData = await loginResp.json();
+                const token = loginData.data.access_token;
+
+                output.innerHTML += '<br>登录成功';
+
+                // 获取测试集列表
+                const testSetsResp = await fetch(
+                    'http://localhost:8000/api/v2/knowledge/add1629a-e683-4ed7-9d7a-f261b01331f2/retrieval-test-sets',
+                    {headers: {'Authorization': `Bearer ${token}`}}
+                );
+                const testSetsData = await testSetsResp.json();
+
+                output.innerHTML += `<br>测试集数量: ${testSetsData.data.list.length}`;
+
+                // 选择第一个测试集
+                const testSet = testSetsData.data.list[0];
+                output.innerHTML += `<br>测试集: ${testSet.name} (${testSet.id})`;
+
+                // 获取测试运行列表
+                const runsResp = await fetch(
+                    `http://localhost:8000/api/v2/retrieval-test-sets/${testSet.id}/runs`,
+                    {headers: {'Authorization': `Bearer ${token}`}}
+                );
+                const runsData = await runsResp.json();
+
+                output.innerHTML += `<br>测试运行数量: ${runsData.data.list.length}`;
+
+                // 选择第一个测试运行
+                const run = runsData.data.list[0];
+                output.innerHTML += `<br>测试运行: ${run.id}, 状态: ${run.status}`;
+
+                // 获取测试结果
+                const resultsResp = await fetch(
+                    `http://localhost:8000/api/v2/retrieval-test-runs/${run.id}/cases`,
+                    {headers: {'Authorization': `Bearer ${token}`}}
+                );
+                const resultsData = await resultsResp.json();
+
+                output.innerHTML += `<br>测试结果数量: ${resultsData.data.list.length}`;
+
+                if (resultsData.data.list.length > 0) {
+                    const result = resultsData.data.list[0];
+                    output.innerHTML += `<br>结果 ID: ${result.id}`;
+                    output.innerHTML += `<br>查询: ${result.query}`;
+                    output.innerHTML += `<br>状态: ${result.status}`;
+                    output.innerHTML += `<br>期望文档: ${result.expected_doc_ids}`;
+                    output.innerHTML += `<br>命中文档: ${result.hit_doc_ids}`;
+                    output.innerHTML += `<br>结果数量: ${result.results.length}`;
+
+                    // 显示完整结果
+                    output.innerHTML += '<br><br>完整结果:';
+                    output.innerHTML += `<pre>${JSON.stringify(result, null, 2)}</pre>`;
+                }
+
+            } catch (error) {
+                output.innerHTML += `<br>错误: ${error.message}`;
+            }
+        }
+
+        test();
+    </script>
+</body>
+</html>

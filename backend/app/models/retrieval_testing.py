@@ -75,7 +75,7 @@ class RetrievalTestRun(Base, UUIDPk):
     )
 
     test_set_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("retrieval_test_sets.id"), index=True
+        ForeignKey("retrieval_test_sets.id", ondelete="CASCADE"), index=True
     )
     kb_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("knowledge_bases.id"), index=True)
     status: Mapped[str] = mapped_column(String(16))
