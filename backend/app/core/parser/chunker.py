@@ -44,6 +44,12 @@ class Chunker:
         """
         分块处理
 
+        支持的元素类型：
+        - paragraph: 段落
+        - heading: 标题
+        - list: 列表
+        - table: 表格
+
         Args:
             elements: 文档元素列表
             doc_id: 文档 ID
@@ -60,8 +66,9 @@ class Chunker:
         chunk_idx = 0
 
         for elem in elements:
-            # 只处理文本类型
-            if elem.element_type not in ['paragraph', 'heading', 'list']:
+            # 处理文本和表格类型
+            # 注意：表格内容也包含文本，需要被分块和检索
+            if elem.element_type not in ['paragraph', 'heading', 'list', 'table']:
                 continue
 
             text = elem.content
