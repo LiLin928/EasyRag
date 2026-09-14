@@ -36,6 +36,8 @@ def rrf_fusion(
                 **result,
                 "vector_score": result["vector_score"],
                 "keyword_score": 0.0,
+                "vector_rank": result.get("vector_rank"),  # 保留向量排名
+                "fulltext_rank": None,  # 向量检索时没有关键词排名
                 "rrf_score": 0.0
             }
         doc_scores[doc_id]["rrf_score"] += rrf_score
@@ -51,10 +53,15 @@ def rrf_fusion(
                 **result,
                 "vector_score": 0.0,
                 "keyword_score": result["keyword_score"],
+                "vector_rank": None,  # 关键词检索时没有向量排名
+                "fulltext_rank": result.get("fulltext_rank"),  # 保留关键词排名
                 "rrf_score": 0.0
             }
         doc_scores[doc_id]["rrf_score"] += rrf_score
         doc_scores[doc_id]["keyword_score"] = result["keyword_score"]
+        # 如果同一个文档在向量检索中也存在，更新 fulltext_rank
+        if result.get("fulltext_rank") is not None:
+            doc_scores[doc_id]["fulltext_rank"] = result["fulltext_rank"]
 
     # 按 RRF 分数排序
     sorted_results = sorted(
@@ -120,6 +127,8 @@ def weighted_fusion(
                 **result,
                 "vector_score": result["vector_score"],
                 "keyword_score": 0.0,
+                "vector_rank": result.get("vector_rank"),  # 保留向量排名
+                "fulltext_rank": None,  # 向量检索时没有关键词排名
                 "weighted_score": 0.0
             }
         doc_scores[doc_id]["weighted_score"] += result.get("normalized_score", 0) * vector_weight
@@ -132,10 +141,15 @@ def weighted_fusion(
                 **result,
                 "vector_score": 0.0,
                 "keyword_score": result["keyword_score"],
+                "vector_rank": None,  # 关键词检索时没有向量排名
+                "fulltext_rank": result.get("fulltext_rank"),  # 保留关键词排名
                 "weighted_score": 0.0
             }
         doc_scores[doc_id]["weighted_score"] += result.get("normalized_score", 0) * keyword_weight
         doc_scores[doc_id]["keyword_score"] = result["keyword_score"]
+        # 如果同一个文档在向量检索中也存在，更新 fulltext_rank
+        if result.get("fulltext_rank") is not None:
+            doc_scores[doc_id]["fulltext_rank"] = result["fulltext_rank"]
 
     # 按加权分数排序
     sorted_results = sorted(

@@ -103,6 +103,7 @@ class VectorSearch:
         for idx, row in enumerate(rows):
             candidates.append({
                 "rank": idx + 1,
+                "vector_rank": idx + 1,  # 向量检索排名
                 "chunk_id": str(row.chunk_id),
                 "document_id": str(row.document_id),
                 "document_name": "",  # 需要关联查询
@@ -110,6 +111,7 @@ class VectorSearch:
                 "page_number": row.page_number,
                 "vector_score": float(row.vector_score) if row.vector_score is not None else 0.0,
                 "keyword_score": 0.0,
+                "fulltext_rank": None,  # 向量检索时没有关键词排名
                 "metadata": row.metadata or {}
             })
 
@@ -196,6 +198,8 @@ class KeywordSearch:
         for idx, row in enumerate(rows):
             candidates.append({
                 "rank": idx + 1,
+                "vector_rank": None,  # 关键词检索时没有向量排名
+                "fulltext_rank": idx + 1,  # 关键词检索排名
                 "chunk_id": str(row.chunk_id),
                 "document_id": str(row.document_id),
                 "document_name": "",  # 需要关联查询
