@@ -136,3 +136,100 @@ def test_multiple_conditions():
 
     assert where_clause.count("AND") == 2
     assert len(params) == 3
+
+
+def test_strict_timestamp_validation():
+    """测试严格的时间戳格式验证。"""
+    builder = MetadataFilterBuilder()
+
+    # 有效的时间戳格式
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "create_time", "operator": ">=", "value": "2026-01-01"}
+        ]
+    }
+    where_clause, params = builder.build_where_clause(filters)
+    assert "timestamp" in where_clause
+
+    # 有效的时间戳格式（带时间）
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "update_time", "operator": "<=", "value": "2026-01-01T10:30:00"}
+        ]
+    }
+    where_clause, params = builder.build_where_clause(filters)
+    assert "timestamp" in where_clause
+
+    # 无效的时间戳格式（含 - 但不是时间戳）
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "code", "operator": ">=", "value": "P-1"}
+        ]
+    }
+    where_clause, params = builder.build_where_clause(filters)
+    # 应该识别为数字，而不是时间戳
+    assert "float" in where_clause
+    assert "timestamp" not in where_clause
+
+
+def test_field_name_validation():
+    """测试字段名安全性验证。"""
+    builder = MetadataFilterBuilder()
+
+    # 有效的字段名
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "valid_field", "operator": "=", "value": "test"}
+        ]
+    }
+    where_clause, params = builder.build_where_clause(filters)
+    assert "valid_field" in where_clause
+
+    # 带下划线的有效字段名
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "user_name_123", "operator": "=", "value": "test"}
+        ]
+    }
+    where_clause, params = builder.build_where_clause(filters)
+    assert "user_name_123" in where_clause
+
+
+def test_invalid_field_name():
+    """测试非法字段名应被拒绝。"""
+    builder = MetadataFilterBuilder()
+
+    # SQL注入尝试
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "'; DROP TABLE users; --", "operator": "=", "value": "test"}
+        ]
+    }
+    with pytest.raises(ValueError, match="Invalid field name"):
+        builder.build_where_clause(filters)
+
+    # 以数字开头的字段名
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "123_field", "operator": "=", "value": "test"}
+        ]
+    }
+    with pytest.raises(ValueError, match="Invalid field name"):
+        builder.build_where_clause(filters)
+
+    # 包含特殊字符的字段名
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "field-name", "operator": "=", "value": "test"}
+        ]
+    }
+    with pytest.raises(ValueError, match="Invalid field name"):
+        builder.build_where_clause(filters)

@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from datetime import date
 import math
+import re
 import uuid
 
 from sqlalchemy import select
@@ -9,6 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.exceptions import BizException, ErrorCode
 from app.models.metadata import KbMetadataField
+
+
+# 时间戳格式正则表达式（ISO 8601）
+TIMESTAMP_PATTERN = re.compile(r'^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?)?$')
+
+# 字段名安全验证正则（字母、数字、下划线，不能以数字开头）
+FIELD_NAME_PATTERN = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 @dataclass(frozen=True)
@@ -233,6 +241,51 @@ class MetadataFilterBuilder:
 
     SUPPORTED_OPERATORS = ["=", "!=", ">", ">=", "<", "<=", "IN", "LIKE"]
 
+    @staticmethod
+    def _is_timestamp(value: str) -> bool:
+        """验证字符串是否为时间戳格式。
+
+        Args:
+            value: 待验证的字符串
+
+        Returns:
+            是否为有效的时间戳格式
+
+        Examples:
+            >>> MetadataFilterBuilder._is_timestamp("2026-01-01")
+            True
+            >>> MetadataFilterBuilder._is_timestamp("2026-01-01T10:30:00")
+            True
+            >>> MetadataFilterBuilder._is_timestamp("P-1")
+            False
+        """
+        return bool(TIMESTAMP_PATTERN.match(value))
+
+    @staticmethod
+    def _validate_field_name(field: str) -> str:
+        """验证字段名安全性，防止SQL注入。
+
+        Args:
+            field: 字段名
+
+        Returns:
+            验证通过的字段名
+
+        Raises:
+            ValueError: 字段名格式非法
+
+        Examples:
+            >>> MetadataFilterBuilder._validate_field_name("department")
+            'department'
+            >>> MetadataFilterBuilder._validate_field_name("user_name")
+            'user_name'
+            >>> MetadataFilterBuilder._validate_field_name("'; DROP TABLE users; --")
+            ValueError: Invalid field name
+        """
+        if not FIELD_NAME_PATTERN.match(field):
+            raise ValueError(f"Invalid field name: {field}")
+        return field
+
     def build_where_clause(
         self,
         filters: dict[str, object] | None,
@@ -298,16 +351,20 @@ class MetadataFilterBuilder:
             (clause, params) 元组
 
         Raises:
-            ValueError: 不支持的操作符
+            ValueError: 不支持的操作符或格式错误
         """
         field = condition["field"]
         operator = condition["operator"]
         value = condition["value"]
 
+        # 验证操作符
         if operator not in self.SUPPORTED_OPERATORS:
             raise ValueError(f"不支持的操作符: {operator}")
 
-        # JSONB字段访问：metadata->>'field'
+        # 验证字段名安全性
+        field = self._validate_field_name(field)
+
+        # JSONB字段访问：metadata->>'field'（字段名已验证安全）
         field_expr = f"{table_alias}.metadata->>'{field}'"
 
         if operator == "=":
@@ -324,8 +381,8 @@ class MetadataFilterBuilder:
 
         elif operator == ">=":
             param_name = f"p{param_start_idx}"
-            # 尝试判断是时间戳还是数字
-            if isinstance(value, str) and ("-" in value or ":" in value):
+            # 使用严格的时间戳格式验证
+            if isinstance(value, str) and self._is_timestamp(value):
                 # 时间戳
                 return f"({field_expr})::timestamp >= :{param_name}::timestamp", {param_name: str(value)}
             else:
@@ -338,7 +395,8 @@ class MetadataFilterBuilder:
 
         elif operator == "<=":
             param_name = f"p{param_start_idx}"
-            if isinstance(value, str) and ("-" in value or ":" in value):
+            # 使用严格的时间戳格式验证
+            if isinstance(value, str) and self._is_timestamp(value):
                 return f"({field_expr})::timestamp <= :{param_name}::timestamp", {param_name: str(value)}
             else:
                 return f"({field_expr})::float <= :{param_name}::float", {param_name: str(value)}
