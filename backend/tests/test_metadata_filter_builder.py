@@ -1,6 +1,7 @@
 """元数据过滤构建器测试。"""
 import pytest
 from app.core.retrieval.metadata_filter import MetadataFilterBuilder
+from app.exceptions import BizException, ErrorCode
 
 
 def test_simple_equality_condition():
@@ -40,8 +41,10 @@ def test_invalid_operator():
         ]
     }
 
-    with pytest.raises(ValueError, match="不支持的操作符"):
+    with pytest.raises(BizException) as exc_info:
         builder.build_where_clause(filters)
+
+    assert exc_info.value.code == ErrorCode.PARAM_ERROR
 
 
 def test_in_operator():
@@ -211,8 +214,9 @@ def test_invalid_field_name():
             {"field": "'; DROP TABLE users; --", "operator": "=", "value": "test"}
         ]
     }
-    with pytest.raises(ValueError, match="Invalid field name"):
+    with pytest.raises(BizException) as exc_info:
         builder.build_where_clause(filters)
+    assert exc_info.value.code == ErrorCode.PARAM_ERROR
 
     # 以数字开头的字段名
     filters = {
@@ -221,8 +225,9 @@ def test_invalid_field_name():
             {"field": "123_field", "operator": "=", "value": "test"}
         ]
     }
-    with pytest.raises(ValueError, match="Invalid field name"):
+    with pytest.raises(BizException) as exc_info:
         builder.build_where_clause(filters)
+    assert exc_info.value.code == ErrorCode.PARAM_ERROR
 
     # 包含特殊字符的字段名
     filters = {
@@ -231,5 +236,6 @@ def test_invalid_field_name():
             {"field": "field-name", "operator": "=", "value": "test"}
         ]
     }
-    with pytest.raises(ValueError, match="Invalid field name"):
+    with pytest.raises(BizException) as exc_info:
         builder.build_where_clause(filters)
+    assert exc_info.value.code == ErrorCode.PARAM_ERROR

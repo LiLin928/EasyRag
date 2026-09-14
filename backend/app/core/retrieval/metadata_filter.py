@@ -37,10 +37,30 @@ _DOCUMENT_PHYSICAL_FIELDS = {
 
 
 def _param_error(message: str) -> BizException:
+    """创建参数错误异常。
+
+    Args:
+        message: 错误消息
+
+    Returns:
+        BizException 实例
+    """
     return BizException(ErrorCode.PARAM_ERROR, message)
 
 
 def _parse_date(value: object, key: str) -> str:
+    """解析并验证日期字符串。
+
+    Args:
+        value: 待验证的值
+        key: 字段键名（用于错误消息）
+
+    Returns:
+        验证通过的日期字符串
+
+    Raises:
+        BizException: 日期格式无效
+    """
     if not isinstance(value, str):
         raise _param_error(f"Invalid date value for {key}")
     try:
@@ -53,6 +73,18 @@ def _parse_date(value: object, key: str) -> str:
 
 
 def _validate_number(value: object, key: str) -> int | float:
+    """验证数值类型的有效性。
+
+    Args:
+        value: 待验证的值
+        key: 字段键名（用于错误消息）
+
+    Returns:
+        验证通过的数值
+
+    Raises:
+        BizException: 数值无效或不是数值类型
+    """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _param_error(f"Invalid number value for {key}")
     if isinstance(value, float) and not math.isfinite(value):
@@ -61,6 +93,18 @@ def _validate_number(value: object, key: str) -> int | float:
 
 
 def _validate_scalar(value: object, field: KbMetadataField) -> object:
+    """根据字段定义验证标量值。
+
+    Args:
+        value: 待验证的值
+        field: 字段定义对象
+
+    Returns:
+        验证通过的值
+
+    Raises:
+        BizException: 值不符合字段定义
+    """
     key = field.key
     if field.data_type in ("string", "select"):
         if not isinstance(value, str):
@@ -80,12 +124,31 @@ def _validate_scalar(value: object, field: KbMetadataField) -> object:
 
 
 def _field_expression(field: KbMetadataField, alias: str, key_param: str | None) -> str:
+    """构建字段访问的SQL表达式。
+
+    Args:
+        field: 字段定义对象
+        alias: 表别名
+        key_param: 字段键名参数名
+
+    Returns:
+        SQL字段访问表达式
+    """
     if field.scope == "document" and field.key in _DOCUMENT_PHYSICAL_FIELDS:
         return _DOCUMENT_PHYSICAL_FIELDS[field.key]
     return f"{alias}.metadata ->> {key_param}"
 
 
 def _cast(expression: str, data_type: str) -> str:
+    """为表达式添加类型转换。
+
+    Args:
+        expression: SQL表达式
+        data_type: 目标数据类型
+
+    Returns:
+        带类型转换的SQL表达式
+    """
     if data_type == "number":
         return f"cast({expression} as numeric)"
     if data_type == "date":
@@ -96,6 +159,14 @@ def _cast(expression: str, data_type: str) -> str:
 
 
 def _sql_operator(operator: str) -> str:
+    """转换操作符名称为SQL操作符。
+
+    Args:
+        operator: 操作符名称（eq, ne等）
+
+    Returns:
+        SQL操作符（=, !=等）
+    """
     return {"eq": "=", "ne": "!="}.get(operator, operator)
 
 
@@ -106,6 +177,21 @@ def _build_field_predicates(
     index: int,
     alias: str,
 ) -> tuple[list[str], dict[str, object]]:
+    """构建字段的过滤谓词。
+
+    Args:
+        field: 字段定义对象
+        value: 过滤值（可以是单个值、列表或操作符映射）
+        prefix: 参数名前缀
+        index: 字段索引
+        alias: 表别名
+
+    Returns:
+        (谓词列表, 参数字典) 元组
+
+    Raises:
+        BizException: 操作符无效或值验证失败
+    """
     key = field.key
     key_param = f"{prefix}_key_{index}"
     params: dict[str, object] = {key_param: key}
@@ -150,7 +236,29 @@ def build_sql_predicates(
     document_fields: list[KbMetadataField],
     chunk_fields: list[KbMetadataField],
 ) -> tuple[list[str], dict[str, object]]:
-    """Build parameter-bound predicates against a trusted metadata schema."""
+    """根据元数据过滤条件和字段定义构建SQL谓词。
+
+    这是核心函数，用于将元数据过滤条件转换为可执行的SQL谓词列表和参数字典。
+    所有字段都基于知识库的元数据配置进行验证，确保类型安全。
+
+    Args:
+        filters: 元数据过滤条件对象
+        document_fields: 文档级字段定义列表
+        chunk_fields: 分块级字段定义列表
+
+    Returns:
+        (谓词列表, 参数字典) 元组，可直接用于SQL查询
+
+    Raises:
+        BizException: 字段不存在或值验证失败
+
+    Example:
+        >>> filters = MetadataFilter(document={"author": "Alice"})
+        >>> fields = [KbMetadataField(key="author", scope="document", data_type="string")]
+        >>> predicates, params = build_sql_predicates(filters, fields, [])
+        >>> predicates
+        ['d.metadata ->> :doc_key_0 = :doc_value_0_eq']
+    """
     predicates: list[str] = []
     params: dict[str, object] = {}
 
@@ -192,7 +300,28 @@ async def build_predicates_for_kbs(
     kb_ids: list[str],
     filters: MetadataFilter | None,
 ) -> tuple[list[str], dict[str, object]]:
-    """Validate a filter against every selected KB schema in one session."""
+    """为多个知识库构建统一的元数据过滤谓词。
+
+    此函数会从数据库加载所有知识库的元数据字段定义，并对每个知识库验证过滤条件，
+    然后合并所有谓词和参数，确保参数名不会冲突。
+
+    Args:
+        session: 数据库会话
+        kb_ids: 知识库ID列表
+        filters: 元数据过滤条件对象
+
+    Returns:
+        (谓词列表, 参数字典) 元组，所有知识库的谓词已合并
+
+    Raises:
+        BizException: 知识库ID无效或字段不存在
+
+    Example:
+        >>> async with session:
+        ...     predicates, params = await build_predicates_for_kbs(
+        ...         session, ["kb-uuid-1", "kb-uuid-2"], filters
+        ...     )
+    """
     if filters is None or (not filters.document and not filters.chunk):
         return [], {}
     if not kb_ids:
@@ -272,7 +401,7 @@ class MetadataFilterBuilder:
             验证通过的字段名
 
         Raises:
-            ValueError: 字段名格式非法
+            BizException: 字段名格式非法
 
         Examples:
             >>> MetadataFilterBuilder._validate_field_name("department")
@@ -280,10 +409,10 @@ class MetadataFilterBuilder:
             >>> MetadataFilterBuilder._validate_field_name("user_name")
             'user_name'
             >>> MetadataFilterBuilder._validate_field_name("'; DROP TABLE users; --")
-            ValueError: Invalid field name
+            BizException: Invalid field name
         """
         if not FIELD_NAME_PATTERN.match(field):
-            raise ValueError(f"Invalid field name: {field}")
+            raise _param_error(f"Invalid field name: {field}")
         return field
 
     def build_where_clause(
@@ -301,7 +430,7 @@ class MetadataFilterBuilder:
             (where_clause, params) 元组
 
         Raises:
-            ValueError: 不支持的操作符或格式错误
+            BizException: 不支持的操作符或格式错误
         """
         if not filters:
             return "TRUE", {}
@@ -351,7 +480,7 @@ class MetadataFilterBuilder:
             (clause, params) 元组
 
         Raises:
-            ValueError: 不支持的操作符或格式错误
+            BizException: 不支持的操作符或格式错误
         """
         field = condition["field"]
         operator = condition["operator"]
@@ -359,7 +488,7 @@ class MetadataFilterBuilder:
 
         # 验证操作符
         if operator not in self.SUPPORTED_OPERATORS:
-            raise ValueError(f"不支持的操作符: {operator}")
+            raise _param_error(f"不支持的操作符: {operator}")
 
         # 验证字段名安全性
         field = self._validate_field_name(field)
@@ -403,7 +532,7 @@ class MetadataFilterBuilder:
 
         elif operator == "IN":
             if not isinstance(value, list):
-                raise ValueError("IN操作符的值必须是列表")
+                raise _param_error("IN操作符的值必须是列表")
 
             placeholders = []
             params = {}
@@ -417,5 +546,7 @@ class MetadataFilterBuilder:
         elif operator == "LIKE":
             param_name = f"p{param_start_idx}"
             return f"{field_expr} LIKE :{param_name}", {param_name: str(value)}
+
+        return "TRUE", {}
 
         return "TRUE", {}
