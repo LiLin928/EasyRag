@@ -22,6 +22,8 @@ const k10 = ref(false)
 const overrideExpanded = ref<string[]>([])
 const overrideMethod = ref('')
 const cancelling = ref(false)
+const documentMetadataInput = ref('')
+const chunkMetadataInput = ref('')
 
 const selectedKs = computed(() => {
   const ks: number[] = []
@@ -75,6 +77,20 @@ async function handleRun(caseIds?: string[]) {
   if (overrideMethod.value) {
     payload.override_config = { method: overrideMethod.value }
   }
+
+  // 添加元数据过滤参数
+  try {
+    if (documentMetadataInput.value.trim()) {
+      payload.document_metadata = JSON.parse(documentMetadataInput.value.trim())
+    }
+    if (chunkMetadataInput.value.trim()) {
+      payload.chunk_metadata = JSON.parse(chunkMetadataInput.value.trim())
+    }
+  } catch (e) {
+    // JSON 解析错误，使用空对象
+    console.error('元数据JSON解析错误:', e)
+  }
+
   const run = await knowledgeStore.startTestRun(props.setId, payload)
   emit('run-started', run)
 }
@@ -113,6 +129,28 @@ async function handleCancel() {
                 <el-option label="关键词" value="keyword" />
                 <el-option label="混合" value="hybrid" />
               </el-select>
+            </el-form-item>
+          </el-form>
+        </el-collapse-item>
+        <el-collapse-item title="元数据过滤" name="metadata">
+          <el-form size="small" label-width="120px">
+            <el-form-item label="文档元数据">
+              <el-input
+                v-model="documentMetadataInput"
+                type="textarea"
+                :rows="2"
+                placeholder='例如: {"status": "已审核"}'
+              />
+              <div class="metadata-hint">JSON格式，留空表示不过滤</div>
+            </el-form-item>
+            <el-form-item label="分段元数据">
+              <el-input
+                v-model="chunkMetadataInput"
+                type="textarea"
+                :rows="2"
+                placeholder='例如: {"level": 3, "department": "研发部"}'
+              />
+              <div class="metadata-hint">JSON格式，留空表示不过滤</div>
             </el-form-item>
           </el-form>
         </el-collapse-item>
@@ -253,6 +291,12 @@ async function handleCancel() {
     font-weight: 600;
     color: #303133;
   }
+}
+
+.metadata-hint {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 
 .metric-chips {
