@@ -548,5 +548,3 @@ class MetadataFilterBuilder:
             return f"{field_expr} LIKE :{param_name}", {param_name: str(value)}
 
         return "TRUE", {}
-
-        return "TRUE", {}
