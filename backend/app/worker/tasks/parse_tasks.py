@@ -233,6 +233,7 @@ async def _save_chunks_to_db(chunks: list[dict], doc_id: str, kb_id: str) -> int
                 kb_id=str(chunk_dict["kb_id"]),  # ← 转换为字符串
                 content=chunk_dict["content"],
                 content_search=chunk_dict["content"],  # ← 填充全文检索字段
+                section_path=chunk_dict.get("section_path", ""),  # ← 添加章节路径
                 seq=idx,
                 char_count=len(chunk_dict["content"]),
                 metadata_=chunk_dict.get("metadata", {}),

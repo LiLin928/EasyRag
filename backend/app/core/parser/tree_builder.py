@@ -143,6 +143,9 @@ class TreeBuilder:
             for elem in elements:
                 if elem.element_id not in nodes[0].element_ids:
                     nodes[0].element_ids.append(elem.element_id)
+                # 回填 tree_node_id 和 section_path
+                elem.tree_node_id = nodes[0].node_id
+                elem.section_path = nodes[0].title
             return
 
         # 为每个标题节点分配元素
@@ -158,6 +161,9 @@ class TreeBuilder:
                 elem = elements[elem_idx]
                 if elem.element_id not in node.element_ids:
                     node.element_ids.append(elem.element_id)
+                # 回填 tree_node_id 和 section_path
+                elem.tree_node_id = node.node_id
+                elem.section_path = node.title
 
 
 # 保留旧的函数接口以保持向后兼容

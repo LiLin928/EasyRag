@@ -118,11 +118,15 @@ class Chunker:
         """创建 Chunk 字典（简化版）"""
         content = '\n\n'.join(elem.content for elem in elements)
 
+        # 从第一个元素获取章节路径（同一块内的元素应该属于同一章节）
+        section_path = elements[0].section_path if elements else ""
+
         return {
             'doc_id': doc_id,
             'kb_id': kb_id,
             'content': content,
             'chunk_index': chunk_idx,
+            'section_path': section_path,  # 添加章节路径
             'metadata': {
                 'element_ids': [elem.element_id for elem in elements],
                 'element_types': [elem.element_type for elem in elements],

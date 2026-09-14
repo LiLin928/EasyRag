@@ -25,6 +25,8 @@ class DocumentElement:
     content: str
     position: ElementPosition
     metadata: Dict[str, Any] = field(default_factory=dict)
+    tree_node_id: str | None = None  # 所属树节点ID（TreeBuilder填充）
+    section_path: str = ""  # 章节路径（TreeBuilder填充）
 
 
 @dataclass
