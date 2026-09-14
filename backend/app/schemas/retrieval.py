@@ -1,6 +1,26 @@
 """检索相关 Schema 定义。"""
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+
+
+class MetadataCondition(BaseModel):
+    """元数据过滤条件。"""
+    field: str = Field(..., description="字段名")
+    operator: str = Field(..., description="操作符：=, !=, >, >=, <, <=, IN, LIKE")
+    value: Any = Field(..., description="值")
+
+
+class MetadataFilter(BaseModel):
+    """元数据过滤器（支持嵌套）。"""
+    logic: str = Field(default="AND", description="逻辑运算：AND, OR")
+    conditions: List[Union[MetadataCondition, "MetadataFilter"]] = Field(
+        default=[],
+        description="条件列表（支持嵌套）"
+    )
+
+
+# 更新模型前向引用
+MetadataFilter.model_rebuild()
 
 
 class RetrievalRequest(BaseModel):
@@ -15,7 +35,12 @@ class RetrievalRequest(BaseModel):
     rerank_enabled: bool = Field(default=True, description="是否启用重排序")
     rerank_top_n: int = Field(default=10, description="重排序返回数量")
     navigation_enabled: bool = Field(default=True, description="是否启用导航式检索")
-    metadata_filters: Dict[str, Any] = Field(default={}, description="元数据过滤条件")
+
+    # 支持两种格式：简单Dict（向后兼容）和复杂DSL
+    metadata_filters: Optional[Union[Dict[str, Any], MetadataFilter]] = Field(
+        default=None,
+        description="元数据过滤条件（支持复杂查询DSL）"
+    )
 
 
 class RetrievalCandidate(BaseModel):

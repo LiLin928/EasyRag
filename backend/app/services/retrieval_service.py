@@ -2,7 +2,7 @@
 
 整合 Embedder、混合检索、RRF 融合、Reranker、导航式检索到统一服务。
 """
-from typing import Optional
+from typing import Optional, Union, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 import time
 
@@ -11,7 +11,7 @@ from app.core.retrieval.hybrid_search import VectorSearch, KeywordSearch
 from app.core.retrieval.rrf import rrf_fusion
 from app.core.retrieval.reranker import Reranker, should_rerank, conditional_rerank
 from app.core.retrieval.navigation import NavigationSearch
-from app.schemas.retrieval import RetrievalRequest, RetrievalResult, RetrievalCandidate
+from app.schemas.retrieval import RetrievalRequest, RetrievalResult, RetrievalCandidate, MetadataFilter
 
 
 class RetrievalService:
@@ -19,6 +19,45 @@ class RetrievalService:
 
     提供完整的检索流程：向量化 → 混合检索 → RRF融合 → 重排序 → 导航过滤。
     """
+
+    def _normalize_metadata_filters(
+        self,
+        filters: Optional[Union[Dict[str, Any], MetadataFilter]]
+    ) -> Optional[Dict[str, Any]]:
+        """规范化元数据过滤条件。
+
+        将简单Dict格式转换为DSL格式，保持向后兼容。
+
+        Args:
+            filters: 简单Dict或MetadataFilter对象
+
+        Returns:
+            DSL格式的字典
+        """
+        if filters is None:
+            return None
+
+        # 如果已经是MetadataFilter对象，转换为字典
+        if isinstance(filters, MetadataFilter):
+            return filters.model_dump()
+
+        # 如果是简单Dict格式（向后兼容）
+        if isinstance(filters, dict):
+            # 检查是否已经是DSL格式
+            if "logic" in filters and "conditions" in filters:
+                return filters
+
+            # 转换简单格式为DSL格式
+            conditions = [
+                {"field": k, "operator": "=", "value": v}
+                for k, v in filters.items()
+            ]
+            return {
+                "logic": "AND",
+                "conditions": conditions
+            }
+
+        return None
 
     async def retrieve(
         self,
@@ -42,6 +81,9 @@ class RetrievalService:
         """
         start_time = time.time()
 
+        # 规范化元数据过滤条件
+        normalized_filters = self._normalize_metadata_filters(request.metadata_filters)
+
         # 1. 向量化查询（如果需要向量检索）
         query_vector = None
         if request.method in ["hybrid", "vector"] and embedder:
@@ -57,7 +99,30 @@ class RetrievalService:
                 request.kb_id,
                 query_vector,
                 top_k=request.vector_top_k,
-                filters=request.metadata_filters
+                filters=normalized_filters  # 使用规范化后的过滤条件
+            )
+        else:
+            vector_results = []
+
+        if request.method in ["hybrid", "keyword"]:
+            keyword_searcher = KeywordSearch()
+            keyword_results = await keyword_searcher.search(
+                session,
+                request.kb_id,
+                request.query,
+                top_k=request.keyword_top_k,
+                filters=normalized_filters  # 使用规范化后的过滤条件
+            )
+        else:
+            keyword_results = []
+
+        # 3. RRF 融合
+        if request.method == "hybrid":
+            candidates = rrf_fusion(vector_results, keyword_results, k=60)
+        elif request.method == "vector":
+            candidates = vector_results
+        else:
+            candidates = keyword_results
             )
         else:
             vector_results = []
