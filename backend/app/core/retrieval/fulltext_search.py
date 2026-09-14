@@ -56,6 +56,9 @@ async def search(
 ) -> list[dict]:
     """Return enabled trigram matches with metadata predicates applied."""
     async with async_session() as s:
+        # 降低相似度阈值以支持短查询
+        await s.execute(text('SET pg_trgm.similarity_threshold = 0.01'))
+
         predicates, predicate_params = await build_predicates_for_kbs(
             s, kb_ids, metadata_filter
         )

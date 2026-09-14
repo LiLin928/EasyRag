@@ -151,6 +151,9 @@ class KeywordSearch:
         filter_builder = MetadataFilterBuilder()
         where_clause, params = filter_builder.build_where_clause(filters, table_alias="c")
 
+        # 降低相似度阈值以支持短查询
+        await session.execute(text('SET pg_trgm.similarity_threshold = 0.01'))
+
         # 构建 CTE 查询
         # 第一阶段：通过元数据过滤缩小范围
         # 第二阶段：在过滤后的数据上进行关键词匹配
