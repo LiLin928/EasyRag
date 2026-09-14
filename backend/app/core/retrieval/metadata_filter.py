@@ -136,7 +136,7 @@ def _field_expression(field: KbMetadataField, alias: str, key_param: str | None)
     """
     if field.scope == "document" and field.key in _DOCUMENT_PHYSICAL_FIELDS:
         return _DOCUMENT_PHYSICAL_FIELDS[field.key]
-    return f"{alias}.metadata ->> {key_param}"
+    return f"{alias}.metadata ->> :{key_param}"
 
 
 def _cast(expression: str, data_type: str) -> str:
