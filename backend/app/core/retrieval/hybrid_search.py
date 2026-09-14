@@ -3,12 +3,13 @@
 实现向量检索和关键词检索功能。
 """
 from typing import List, Dict, Any, Optional
-from sqlalchemy import select, and_, or_, func
+from sqlalchemy import select, and_, or_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pgvector.sqlalchemy import Vector
 
 from app.models.chunk import Chunk, EMBEDDING_DIM
 from app.core.retrieval.embedder import Embedder
+from app.core.retrieval.metadata_filter import MetadataFilterBuilder
 
 
 class VectorSearch:
@@ -35,12 +36,14 @@ class VectorSearch:
     ) -> List[Dict]:
         """执行向量检索。
 
+        使用 CTE 先过滤元数据，再进行向量相似度检索。
+
         Args:
             session: 数据库会话
             kb_id: 知识库ID
             query_vector: 查询向量
             top_k: 返回数量
-            filters: 元数据过滤条件
+            filters: 元数据过滤条件（DSL格式）
 
         Returns:
             检索结果列表
@@ -49,52 +52,65 @@ class VectorSearch:
         if len(query_vector) != EMBEDDING_DIM:
             raise ValueError(f"向量维度不匹配：期望 {EMBEDDING_DIM}，实际 {len(query_vector)}")
 
-        # 构建查询
-        q = select(Chunk).where(
-            and_(
-                Chunk.kb_id == kb_id,
-                Chunk.enabled == True,
-                Chunk.embedding.isnot(None)
-            )
+        # 构建元数据过滤条件
+        filter_builder = MetadataFilterBuilder()
+        where_clause, params = filter_builder.build_where_clause(filters, table_alias="c")
+
+        # 构建 CTE 查询
+        # 第一阶段：通过元数据过滤缩小范围
+        # 第二阶段：在过滤后的数据上计算向量相似度
+        cte_query = f"""
+        WITH filtered_chunks AS (
+            SELECT
+                id,
+                document_id,
+                content,
+                page_number,
+                metadata,
+                embedding
+            FROM chunks c
+            WHERE c.kb_id = :kb_id
+                AND c.enabled = true
+                AND c.embedding IS NOT NULL
+                AND {where_clause}
         )
+        SELECT
+            id as chunk_id,
+            document_id,
+            content,
+            page_number,
+            metadata,
+            1 - (embedding <=> :query_vector) as vector_score
+        FROM filtered_chunks
+        ORDER BY embedding <=> :query_vector
+        LIMIT :top_k
+        """
 
-        # 元数据过滤
-        if filters:
-            for key, value in filters.items():
-                q = q.where(Chunk.metadata_[key].astext == str(value))
+        # 准备查询参数
+        query_params = {
+            "kb_id": kb_id,
+            "query_vector": f"[{','.join(str(x) for x in query_vector)}]",  # 向量格式化为 [1.0, 2.0, ...]
+            "top_k": top_k,
+            **params  # 合并元数据过滤参数
+        }
 
-        # 向量相似度计算（余弦距离）
-        # pgvector 的 cosine_distance 返回距离，需要转换为相似度
-        q = q.order_by(
-            Chunk.embedding.cosine_distance(query_vector)
-        ).limit(top_k)
-
-        # 执行查询
-        results = await session.execute(q)
-        chunks = results.scalars().all()
+        # 执行原生SQL查询
+        result = await session.execute(text(cte_query), query_params)
+        rows = result.fetchall()
 
         # 格式化结果
         candidates = []
-        for idx, chunk in enumerate(chunks):
-            # 计算相似度分数（距离转相似度）
-            # 余弦距离 = 1 - 余弦相似度，所以相似度 = 1 - 距离
-            distance_query = select(
-                Chunk.embedding.cosine_distance(query_vector)
-            ).where(Chunk.id == chunk.id)
-            distance = await session.scalar(distance_query)
-
-            similarity = 1 - distance if distance is not None else 0
-
+        for idx, row in enumerate(rows):
             candidates.append({
                 "rank": idx + 1,
-                "chunk_id": str(chunk.id),
-                "document_id": str(chunk.document_id),
+                "chunk_id": str(row.chunk_id),
+                "document_id": str(row.document_id),
                 "document_name": "",  # 需要关联查询
-                "content": chunk.content,
-                "page_number": chunk.page_number,
-                "vector_score": float(similarity),
+                "content": row.content,
+                "page_number": row.page_number,
+                "vector_score": float(row.vector_score) if row.vector_score is not None else 0.0,
                 "keyword_score": 0.0,
-                "metadata": chunk.metadata_ or {}
+                "metadata": row.metadata or {}
             })
 
         return candidates

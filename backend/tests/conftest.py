@@ -10,15 +10,47 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import text
 
 from app.main import app
 from app.models.user import User
 from app.models.scene import Scene
+from app.models.base import Base
+from app.config import settings
 
 # Windows 平台需要使用 SelectorEventLoop
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+@pytest.fixture
+async def session():
+    """创建数据库会话用于集成测试。
+
+    每个测试函数获取独立的会话，测试结束后回滚以保持数据库清洁。
+    """
+    # 使用应用的数据库配置创建测试引擎
+    engine = create_async_engine(
+        settings.database_url,
+        pool_size=5,
+        max_overflow=10,
+        echo=False
+    )
+
+    # 创建会话工厂
+    async_session_maker = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False
+    )
+
+    # 创建会话（不使用嵌套事务）
+    async with async_session_maker() as s:
+        yield s
+
+    # 清理引擎
+    await engine.dispose()
 
 
 @pytest.fixture
