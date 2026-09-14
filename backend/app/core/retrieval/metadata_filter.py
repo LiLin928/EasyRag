@@ -220,3 +220,144 @@ async def build_predicates_for_kbs(
             all_predicates.append(p)
         all_params.update(namespaced)
     return all_predicates, all_params
+
+
+class MetadataFilterBuilder:
+    """元数据过滤SQL构建器。
+
+    将DSL格式的过滤条件转换为SQL WHERE子句和参数。
+
+    Attributes:
+        supported_operators: 支持的操作符列表
+    """
+
+    SUPPORTED_OPERATORS = ["=", "!=", ">", ">=", "<", "<=", "IN", "LIKE"]
+
+    def build_where_clause(
+        self,
+        filters: dict[str, object] | None,
+        table_alias: str = "chunks"
+    ) -> tuple[str, dict[str, object]]:
+        """构建WHERE子句和参数。
+
+        Args:
+            filters: DSL格式的过滤条件
+            table_alias: 表别名
+
+        Returns:
+            (where_clause, params) 元组
+
+        Raises:
+            ValueError: 不支持的操作符或格式错误
+        """
+        if not filters:
+            return "TRUE", {}
+
+        logic = filters.get("logic", "AND").upper()
+        conditions = filters.get("conditions", [])
+
+        if not conditions:
+            return "TRUE", {}
+
+        sql_conditions = []
+        params = {}
+
+        for idx, cond in enumerate(conditions):
+            if "logic" in cond:
+                # 递归处理嵌套条件
+                sub_clause, sub_params = self.build_where_clause(cond, table_alias)
+                sql_conditions.append(f"({sub_clause})")
+                # 重新编号参数以避免冲突
+                for key, value in sub_params.items():
+                    params[f"p{len(params)}"] = value
+            else:
+                # 处理叶子条件
+                clause, clause_params = self._build_leaf_condition(
+                    cond, len(params), table_alias
+                )
+                sql_conditions.append(clause)
+                params.update(clause_params)
+
+        where_clause = f" {logic} ".join(sql_conditions)
+        return where_clause, params
+
+    def _build_leaf_condition(
+        self,
+        condition: dict[str, object],
+        param_start_idx: int,
+        table_alias: str
+    ) -> tuple[str, dict[str, object]]:
+        """构建单个条件的SQL。
+
+        Args:
+            condition: 单个条件字典
+            param_start_idx: 参数起始索引
+            table_alias: 表别名
+
+        Returns:
+            (clause, params) 元组
+
+        Raises:
+            ValueError: 不支持的操作符
+        """
+        field = condition["field"]
+        operator = condition["operator"]
+        value = condition["value"]
+
+        if operator not in self.SUPPORTED_OPERATORS:
+            raise ValueError(f"不支持的操作符: {operator}")
+
+        # JSONB字段访问：metadata->>'field'
+        field_expr = f"{table_alias}.metadata->>'{field}'"
+
+        if operator == "=":
+            param_name = f"p{param_start_idx}"
+            return f"{field_expr} = :{param_name}", {param_name: str(value)}
+
+        elif operator == "!=":
+            param_name = f"p{param_start_idx}"
+            return f"{field_expr} != :{param_name}", {param_name: str(value)}
+
+        elif operator == ">":
+            param_name = f"p{param_start_idx}"
+            return f"({field_expr})::float > :{param_name}::float", {param_name: str(value)}
+
+        elif operator == ">=":
+            param_name = f"p{param_start_idx}"
+            # 尝试判断是时间戳还是数字
+            if isinstance(value, str) and ("-" in value or ":" in value):
+                # 时间戳
+                return f"({field_expr})::timestamp >= :{param_name}::timestamp", {param_name: str(value)}
+            else:
+                # 数字
+                return f"({field_expr})::float >= :{param_name}::float", {param_name: str(value)}
+
+        elif operator == "<":
+            param_name = f"p{param_start_idx}"
+            return f"({field_expr})::float < :{param_name}::float", {param_name: str(value)}
+
+        elif operator == "<=":
+            param_name = f"p{param_start_idx}"
+            if isinstance(value, str) and ("-" in value or ":" in value):
+                return f"({field_expr})::timestamp <= :{param_name}::timestamp", {param_name: str(value)}
+            else:
+                return f"({field_expr})::float <= :{param_name}::float", {param_name: str(value)}
+
+        elif operator == "IN":
+            if not isinstance(value, list):
+                raise ValueError("IN操作符的值必须是列表")
+
+            placeholders = []
+            params = {}
+            for i, v in enumerate(value):
+                param_name = f"p{param_start_idx + i}"
+                placeholders.append(f":{param_name}")
+                params[param_name] = str(v)
+
+            return f"{field_expr} IN ({', '.join(placeholders)})", params
+
+        elif operator == "LIKE":
+            param_name = f"p{param_start_idx}"
+            return f"{field_expr} LIKE :{param_name}", {param_name: str(value)}
+
+        return "TRUE", {}
