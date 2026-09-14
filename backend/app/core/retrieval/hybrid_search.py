@@ -132,6 +132,7 @@ class KeywordSearch:
     ) -> List[Dict]:
         """执行关键词检索。
 
+        使用 CTE 先过滤元数据，再进行关键词匹配。
         使用 pg_trgm 三元组相似度进行模糊匹配。
 
         Args:
@@ -139,53 +140,70 @@ class KeywordSearch:
             kb_id: 知识库ID
             query: 查询文本
             top_k: 返回数量
-            filters: 元数据过滤条件
+            filters: 元数据过滤条件（DSL格式）
 
         Returns:
             检索结果列表
         """
-        # 构建查询
-        q = select(Chunk).where(
-            and_(
-                Chunk.kb_id == kb_id,
-                Chunk.enabled == True,
-                Chunk.content_search.isnot(None)
-            )
+        # 构建元数据过滤条件
+        filter_builder = MetadataFilterBuilder()
+        where_clause, params = filter_builder.build_where_clause(filters, table_alias="c")
+
+        # 构建 CTE 查询
+        # 第一阶段：通过元数据过滤缩小范围
+        # 第二阶段：在过滤后的数据上进行关键词匹配
+        cte_query = f"""
+        WITH filtered_chunks AS (
+            SELECT
+                id,
+                document_id,
+                content,
+                content_search,
+                page_number,
+                metadata
+            FROM chunks c
+            WHERE c.kb_id = :kb_id
+                AND c.enabled = true
+                AND c.content_search IS NOT NULL
+                AND {where_clause}
         )
+        SELECT
+            id as chunk_id,
+            document_id,
+            content,
+            page_number,
+            metadata,
+            similarity(content_search, :query) as keyword_score
+        FROM filtered_chunks
+        ORDER BY keyword_score DESC
+        LIMIT :top_k
+        """
 
-        # 元数据过滤
-        if filters:
-            for key, value in filters.items():
-                q = q.where(Chunk.metadata_[key].astext == str(value))
+        # 准备查询参数
+        query_params = {
+            "kb_id": kb_id,
+            "query": query,
+            "top_k": top_k,
+            **params  # 合并元数据过滤参数
+        }
 
-        # 全文搜索：在 content_search 中查找
-        # 使用 pg_trgm 相似度或包含查询
-        q = q.where(
-            Chunk.content_search.op('%')(query)  # 包含查询词
-        ).order_by(
-            func.similarity(Chunk.content_search, query).desc()
-        ).limit(top_k)
+        # 执行原生SQL查询
+        result = await session.execute(text(cte_query), query_params)
+        rows = result.fetchall()
 
-        results = await session.execute(q)
-        chunks = results.scalars().all()
-
+        # 格式化结果
         candidates = []
-        for idx, chunk in enumerate(chunks):
-            # 计算关键词相似度
-            similarity = await session.scalar(
-                func.similarity(Chunk.content_search, query)
-            )
-
+        for idx, row in enumerate(rows):
             candidates.append({
                 "rank": idx + 1,
-                "chunk_id": str(chunk.id),
-                "document_id": str(chunk.document_id),
+                "chunk_id": str(row.chunk_id),
+                "document_id": str(row.document_id),
                 "document_name": "",  # 需要关联查询
-                "content": chunk.content,
-                "page_number": chunk.page_number,
+                "content": row.content,
+                "page_number": row.page_number,
                 "vector_score": 0.0,
-                "keyword_score": float(similarity or 0),
-                "metadata": chunk.metadata_ or {}
+                "keyword_score": float(row.keyword_score) if row.keyword_score is not None else 0.0,
+                "metadata": row.metadata or {}
             })
 
         return candidates

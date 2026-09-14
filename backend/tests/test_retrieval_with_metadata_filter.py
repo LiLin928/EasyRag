@@ -9,7 +9,7 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.retrieval.hybrid_search import VectorSearch
+from app.core.retrieval.hybrid_search import VectorSearch, KeywordSearch
 from app.core.retrieval.embedder import Embedder
 from app.models.chunk import Chunk, EMBEDDING_DIM
 from app.models.document import Document
@@ -125,6 +125,7 @@ async def setup_test_data(session: AsyncSession):
             document_id=doc_id,
             kb_id=str(kb_id),  # kb_id is UUID, need to convert to string
             content=content,
+            content_search=content,  # 添加 content_search 字段用于关键词检索
             page_number=1,
             metadata_=metadata,
             embedding=vector,
@@ -357,3 +358,145 @@ async def test_vector_search_filter_order(session: AsyncSession, setup_test_data
     if len(results) > 1:
         for i in range(len(results) - 1):
             assert results[i]["vector_score"] >= results[i+1]["vector_score"], "结果应按相似度降序排列"
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_with_metadata_filter(session: AsyncSession, setup_test_data):
+    """测试关键词检索应用元数据过滤。
+
+    验证：
+    1. 元数据过滤在关键词检索之前执行
+    2. 所有结果都符合元数据条件
+    3. 不同过滤条件返回不同结果
+    """
+    kb_id = setup_test_data["kb_id"]
+
+    keyword_search = KeywordSearch()
+
+    # 测试1：过滤department=sales
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "department", "operator": "=", "value": "sales"}
+        ]
+    }
+
+    results = await keyword_search.search(
+        session=session,
+        kb_id=kb_id,
+        query="报告",
+        top_k=10,
+        filters=filters,
+    )
+
+    # 验证：所有结果的department都应该是sales
+    assert len(results) > 0, "应该返回结果"
+    for result in results:
+        assert result["metadata"]["department"] == "sales", f"结果部门应为sales，实际为{result['metadata']['department']}"
+
+    # 验证：结果数量应该少于总数量（6个分块中只有2个是sales）
+    assert len(results) <= 2, f"销售部门应该最多2条结果，实际{len(results)}条"
+
+    # 测试2：过滤year=2025
+    filters_2025 = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "year", "operator": "=", "value": "2025"}
+        ]
+    }
+
+    results_2025 = await keyword_search.search(
+        session=session,
+        kb_id=kb_id,
+        query="文档",
+        top_k=10,
+        filters=filters_2025,
+    )
+
+    # 验证：所有结果的year都应该是2025
+    for result in results_2025:
+        assert str(result["metadata"]["year"]) == "2025", f"结果年份应为2025，实际为{result['metadata']['year']}"
+
+    # 测试3：复合过滤条件
+    filters_complex = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "department", "operator": "=", "value": "tech"},
+            {"field": "year", "operator": "=", "value": "2024"}
+        ]
+    }
+
+    results_complex = await keyword_search.search(
+        session=session,
+        kb_id=kb_id,
+        query="文档",
+        top_k=10,
+        filters=filters_complex,
+    )
+
+    # 验证：所有结果应该同时满足department=tech和year=2024
+    for result in results_complex:
+        assert result["metadata"]["department"] == "tech", "结果部门应为tech"
+        assert str(result["metadata"]["year"]) == "2024", "结果年份应为2024"
+
+    # 验证：应该只有1条结果（tech且year=2024）
+    assert len(results_complex) == 1, f"应该只有1条结果，实际{len(results_complex)}条"
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_without_filter(session: AsyncSession, setup_test_data):
+    """测试不带元数据过滤的关键词检索。
+
+    验证：不带过滤条件时返回所有结果。
+    """
+    kb_id = setup_test_data["kb_id"]
+
+    keyword_search = KeywordSearch()
+
+    # 不带过滤条件
+    results = await keyword_search.search(
+        session=session,
+        kb_id=kb_id,
+        query="文档",
+        top_k=20,
+        filters=None,
+    )
+
+    # 验证：应该返回所有6个分块
+    assert len(results) == 6, f"不带过滤应该返回6条结果，实际{len(results)}条"
+
+
+@pytest.mark.asyncio
+async def test_keyword_search_filter_order(session: AsyncSession, setup_test_data):
+    """测试元数据过滤在关键词检索之前执行。
+
+    验证：CTE确保先过滤再进行关键词匹配，提高性能。
+    """
+    kb_id = setup_test_data["kb_id"]
+
+    keyword_search = KeywordSearch()
+
+    # 使用一个只匹配少量结果的过滤条件
+    filters = {
+        "logic": "AND",
+        "conditions": [
+            {"field": "department", "operator": "=", "value": "sales"}
+        ]
+    }
+
+    # 执行检索
+    results = await keyword_search.search(
+        session=session,
+        kb_id=kb_id,
+        query="报告",
+        top_k=5,
+        filters=filters,
+    )
+
+    # 验证：结果应该只包含sales部门的数据
+    assert all(r["metadata"]["department"] == "sales" for r in results), "所有结果应符合过滤条件"
+
+    # 验证：结果已按关键词相似度排序
+    if len(results) > 1:
+        for i in range(len(results) - 1):
+            assert results[i]["keyword_score"] >= results[i+1]["keyword_score"], "结果应按相似度降序排列"
