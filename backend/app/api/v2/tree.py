@@ -19,16 +19,24 @@ async def get_tree(doc_id: str, me=Depends(get_current_user)):
                                  .order_by(TreeNode.sort_order))).scalars().all()
     if not nodes:
         raise BizException(ErrorCode.NOT_FOUND, "结构树尚未生成或文档不存在")
+
+    # 按 parent_id 分组
     by_parent: dict[str, list] = {}
     for n in nodes:
         key = str(n.parent_id) if n.parent_id else "root"
         by_parent.setdefault(key, []).append(n)
 
     def build(parent_key: str):
-        return [{"node_id": str(n.id), "title": n.title, "level": n.level,
-                 "summary": n.summary, "element_count": n.element_count,
-                 "children": build(str(n.id))} for n in by_parent.get(parent_key, [])]
+        """递归构建子树"""
+        return [{
+            "node_id": str(n.id),
+            "title": n.title,
+            "level": n.level,
+            "summary": n.summary,
+            "element_count": n.element_count,
+            "children": build(str(n.id))
+        } for n in by_parent.get(parent_key, [])]
 
-    root_node = by_parent.get("root", [None])[0] if by_parent.get("root") else None
-    root_key = str(root_node.id) if root_node else "root"
-    return ok(build(root_key))
+    # 构建完整的树：返回所有根节点（parent_id=None）
+    tree = build("root")
+    return ok(tree)
