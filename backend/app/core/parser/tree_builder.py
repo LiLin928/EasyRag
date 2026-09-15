@@ -108,11 +108,17 @@ class TreeBuilder:
         return False
 
     def _create_node(self, elem: DocumentElement, doc_id: str) -> TreeNodeData:
-        """创建树节点"""
+        """创建树节点
+
+        node_id 必须是合法 UUID 字符串：下游 _save_child_chunks_to_db 用
+        uuid.UUID(tree_node_id) 解析，且 ChildChunk.tree_node_id 是指向
+        doc_tree_nodes.id 的 UUID 外键，故此处生成随机 UUID 作为领域节点 ID，
+        再由 _save_tree_nodes_to_db 原样用作 DB 主键，保证三者一致。
+        """
         level = elem.metadata.get('level', 1)
 
         return TreeNodeData(
-            node_id=f'{doc_id}-node-{elem.element_id}',
+            node_id=str(uuid.uuid4()),
             level=level,
             title=elem.content,
             element_ids=[elem.element_id],

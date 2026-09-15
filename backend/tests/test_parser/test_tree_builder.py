@@ -68,6 +68,30 @@ async def test_heading_level_detection(builder):
 
 
 @pytest.mark.asyncio
+async def test_heading_node_ids_are_valid_uuids(builder):
+    """标题节点的 node_id 必须是合法 UUID 字符串。
+
+    下游 _save_child_chunks_to_db 用 uuid.UUID(tree_node_id) 解析，
+    且 ChildChunk.tree_node_id 是指向 doc_tree_nodes.id 的 UUID 外键，
+    因此 TreeBuilder 产出的 node_id 必须可直接被 uuid.UUID 解析。
+    回归：曾用 f'{doc_id}-node-{elem_id}' 复合字符串导致解析任务抛
+    ValueError('badly formed hexadecimal UUID string')。
+    """
+    import uuid
+    elements = [
+        create_heading_element(1, 'Chapter 1'),
+        create_paragraph_element('Content 1'),
+        create_heading_element(2, 'Section 1.1'),
+        create_paragraph_element('Content 2'),
+    ]
+    tree = await builder.build(elements, str(uuid.uuid4()))
+    assert tree.nodes
+    for node in tree.nodes:
+        # 不应抛 ValueError；且与 DB 主键一致由 _save_tree_nodes_to_db 保证
+        uuid.UUID(node.node_id)
+
+
+@pytest.mark.asyncio
 async def test_tree_parent_child_relationship(builder):
     """测试父子关系构建"""
     elements = [

@@ -469,7 +469,11 @@ async def _save_tree_nodes_to_db(tree: "DocumentTree", doc_id: str) -> int:
 
         # 第一遍：创建所有节点并建立映射
         for idx, node in enumerate(tree.nodes):
-            db_node_id = uuid.uuid4()
+            # 用领域 node_id（已是合法 UUID 字符串）作为 DB 主键，
+            # 使 domain node_id == DB PK == child_chunk.tree_node_id，
+            # 保证 _save_child_chunks_to_db 的 uuid.UUID(tree_node_id)
+            # 与外键能正确命中本节点。
+            db_node_id = uuid.UUID(node.node_id)
             node_id_map[node.node_id] = db_node_id
 
             # 创建TreeNode对象
