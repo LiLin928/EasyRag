@@ -16,11 +16,15 @@ router = APIRouter(tags=["elements"])
 
 
 @router.get("/documents/{doc_id}/elements")
-async def list_elements(doc_id: str, page: int = 1, page_size: int = 50,
-                        type: str | None = Query(None),
-                        nodeId: str | None = Query(None),  # 添加nodeId参数
-                        me=Depends(get_current_user)):
-    """列出文档元素，支持按 type 和 nodeId 过滤与分页；返回 doc_title/node_id/node_title/seq。"""
+async def list_elements(
+    doc_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    element_type: str | None = Query(None, description="元素类型过滤"),
+    nodeId: str | None = Query(None, description="树节点ID过滤"),
+    me=Depends(get_current_user)
+):
+    """列出文档元素，支持按 element_type 和 nodeId 过滤与分页；返回 doc_title/node_id/node_title/seq。"""
     async with async_session() as s:
         q = (
             select(ElementPosition, Document.name, TreeNode.id, TreeNode.title)
@@ -28,8 +32,8 @@ async def list_elements(doc_id: str, page: int = 1, page_size: int = 50,
             .join(Document, ElementPosition.document_id == Document.id)
             .where(ElementPosition.document_id == doc_id)
         )
-        if type:
-            q = q.where(ElementPosition.element_type == type)
+        if element_type:
+            q = q.where(ElementPosition.element_type == element_type)
         if nodeId:
             # 按树节点ID过滤
             q = q.where(ElementPosition.tree_node_id == nodeId)
