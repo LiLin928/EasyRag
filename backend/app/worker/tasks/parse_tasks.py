@@ -364,11 +364,25 @@ async def _save_child_chunks_to_db(
     import uuid
     from app.models.child_chunk import ChildChunk
     from app.models.tree_node import TreeNode
+    from app.models.document import Document
 
     if not child_chunks:
         return 0
 
     async with async_session() as session:
+        # 更新文档的分段数量与状态（与 _save_chunks_to_db 保持一致，
+        # 避免父子分段模式下文档列表"分段数"列显示旧值/0）
+        doc_uuid = uuid.UUID(doc_id)
+        doc = await session.get(Document, doc_uuid)
+        if doc:
+            doc.chunk_count = len(child_chunks)
+            # 子分段 metadata 可能携带 element_ids，据此更新元素数量
+            first_meta = child_chunks[0].get("metadata") or {}
+            element_ids = first_meta.get("element_ids", [])
+            if element_ids:
+                doc.element_count = len(element_ids)
+            doc.status = "parsing"
+
         # 统计每个 tree_node_id 的子分段数量
         node_chunk_count = {}
         for chunk_dict in child_chunks:
