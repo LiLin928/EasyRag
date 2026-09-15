@@ -18,25 +18,25 @@ from app.db.session import async_session
 
 
 _SQL_CHILD_CHUNKS = """
-SELECT cc.id, cc.document_id, cc.tree_node_id, cc.kb_id,
-       cc.position, cc.content, cc.metadata, cc.char_count,
-       cc.embedding_model, d.name AS document_name,
-       1 - (cc.embedding <=> cast(:emb as vector)) AS vector_score
-FROM child_chunks cc
-JOIN documents d ON d.id = cc.document_id
+SELECT c.id, c.document_id, c.tree_node_id, c.kb_id,
+       c.position, c.content, c.metadata, c.char_count,
+       c.embedding_model, d.name AS document_name,
+       1 - (c.embedding <=> cast(:emb as vector)) AS vector_score
+FROM child_chunks c
+JOIN documents d ON d.id = c.document_id
 WHERE d.kb_id::text = ANY(cast(:kb_ids as text[]))
   AND d.enabled
-  AND cc.enabled
-  AND (cast(:doc_ids as uuid[]) IS NULL OR cc.document_id = ANY(cast(:doc_ids as uuid[])))
-  AND (cast(:scope as uuid[]) IS NULL OR cc.id = ANY(cast(:scope as uuid[])))
-  AND (cast(:embedding_model as text) IS NULL OR cc.embedding_model = cast(:embedding_model as text))
+  AND c.enabled
+  AND (cast(:doc_ids as uuid[]) IS NULL OR c.document_id = ANY(cast(:doc_ids as uuid[])))
+  AND (cast(:scope as uuid[]) IS NULL OR c.id = ANY(cast(:scope as uuid[])))
+  AND (cast(:embedding_model as text) IS NULL OR c.embedding_model = cast(:embedding_model as text))
   AND (cast(:similarity_threshold as double precision) IS NULL
-       OR 1 - (cc.embedding <=> cast(:emb as vector)) >= cast(:similarity_threshold as double precision))
-  AND cc.embedding IS NOT NULL
+       OR 1 - (c.embedding <=> cast(:emb as vector)) >= cast(:similarity_threshold as double precision))
+  AND c.embedding IS NOT NULL
 """
 
 _ORDER_CHILD_CHUNKS = """
-ORDER BY cc.embedding <=> cast(:emb as vector), cc.id
+ORDER BY c.embedding <=> cast(:emb as vector), c.id
 LIMIT :k
 """
 
