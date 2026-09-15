@@ -115,7 +115,7 @@ async def upload(
         document = Document(
             kb_id=kb.id,
             user_id=me.id,
-            name=file.filename,
+            name=file.filename,  # 保存原始文件名用于显示
             ext=ext,
             size=len(data),
             mode=mode,
@@ -124,7 +124,8 @@ async def upload(
         )
         session.add(document)
         await session.flush()
-        document.file_key = f"{kb.id}/{document.id}/{file.filename}"
+        # 使用文档 ID 作为文件名，避免中文编码问题
+        document.file_key = f"{kb.id}/{document.id}/{document.id}.{ext}"
         task = ParseTask(doc_id=document.id, kb_id=str(kb.id), status="pending")
         session.add(task)
         await session.commit()
