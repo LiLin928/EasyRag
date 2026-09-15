@@ -49,25 +49,14 @@ function parseTableContent(content: string) {
       
       <!-- 表格类型 -->
       <div v-else-if="data.type === 'table'" class="content-table">
-        <template v-if="parseTableContent(data.content)">
-          <el-table
-            :data="parseTableContent(data.content).rows"
-            size="small"
-            border
-          >
-            <el-table-column
-              v-for="(header, index) in parseTableContent(data.content).headers"
-              :key="index"
-              :prop="'col' + index"
-              :label="header"
-            >
-              <template #default="{ row }">
-                {{ row[index] }}
-              </template>
-            </el-table-column>
-          </el-table>
-        </template>
-        <span v-else>表格数据解析失败</span>
+        <!-- 优先使用 HTML 格式渲染 -->
+        <div
+          v-if="data.metadata?.html"
+          class="table-html"
+          v-html="data.metadata.html"
+        ></div>
+        <!-- 回退到纯文本显示 -->
+        <pre v-else class="table-text">{{ data.content }}</pre>
       </div>
       
       <!-- 图片类型 -->
@@ -123,6 +112,45 @@ function parseTableContent(content: string) {
   
   .content-table {
     overflow-x: auto;
+
+    .table-html {
+      :deep(table) {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+
+        th, td {
+          padding: 8px 12px;
+          border: 1px solid #dcdfe6;
+          text-align: left;
+        }
+
+        th {
+          background: #f5f7fa;
+          font-weight: 600;
+          color: #303133;
+        }
+
+        td {
+          color: #606266;
+        }
+
+        tr:hover {
+          background: #f5f7fa;
+        }
+      }
+    }
+
+    .table-text {
+      margin: 0;
+      padding: 12px;
+      background: #f5f7fa;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #606266;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
   }
   
   .content-image {

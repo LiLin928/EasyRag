@@ -249,6 +249,11 @@ export interface DocElement {
   seq: number
   prev_element_id?: string
   next_element_id?: string
+  metadata?: {
+    rows?: number
+    cols?: number
+    html?: string
+  }
 }
 
 // 解析任务

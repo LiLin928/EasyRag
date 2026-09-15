@@ -46,5 +46,6 @@ async def list_elements(
                          "doc_title": doc_name or "",
                          "node_id": str(node_id) if node_id else "",
                          "node_title": node_title or "",
-                         "seq": e.element_index}
+                         "seq": e.element_index,
+                         "metadata": e.metadata_ or {}}  # 添加元数据（表格的 HTML 等）
                         for e, doc_name, node_id, node_title in rows], "total": total})
