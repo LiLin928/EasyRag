@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import async_session
 from app.exceptions import BizException, ErrorCode
 from app.models.chunk import Chunk
+from app.models.child_chunk import ChildChunk
 from app.models.document import Document
 from app.models.knowledge_base import KnowledgeBase
+from app.models.tree_node import TreeNode
 from app.models.metadata import KbMetadataField
 from app.services import metadata_service
 from app.services.metadata_service import validate_metadata
@@ -316,6 +318,84 @@ async def list_chunks(
         return chunks, int(count)
 
 
+async def list_child_chunks(
+    *,
+    kb_id,
+    user_id,
+    keyword=None,
+    document_id=None,
+    vector_state=None,
+    enabled=None,
+    page=1,
+    page_size=20,
+) -> tuple[list, int]:
+    """列出子分段（父子分段模式下的检索单元）。
+
+    Args:
+        kb_id: 知识库 ID。
+        user_id: 当前用户 ID（鉴权）。
+        keyword: 内容关键词（ilike）。
+        document_id: 按文档过滤。
+        vector_state: all/vectorized/pending。
+        enabled: 启用状态过滤。
+        page/page_size: 分页。
+
+    Returns:
+        (子分段列表, 总数)。每个子分段挂载 _document_name 与 _section_path。
+    """
+    offset, limit = _pagination(page, page_size)
+    if vector_state not in {None, "all", "vectorized", "pending"}:
+        raise BizException(ErrorCode.PARAM_ERROR, "不支持的向量化状态")
+    kb_uuid = _uuid(kb_id, "知识库 ID")
+    user_uuid = _uuid(user_id, "用户 ID")
+    async with async_session() as session:
+        await _require_kb(session, kb_uuid, user_uuid)
+        filters = [
+            ChildChunk.kb_id == str(kb_uuid),
+            Document.kb_id == kb_uuid,
+            KnowledgeBase.user_id == user_uuid,
+        ]
+        if document_id is not None:
+            filters.append(ChildChunk.document_id == _uuid(document_id, "文档 ID"))
+        if keyword:
+            pattern = f"%{keyword}%"
+            filters.append(ChildChunk.content.ilike(pattern))
+        if vector_state == "vectorized":
+            filters.append(ChildChunk.embedding.is_not(None))
+        elif vector_state == "pending":
+            filters.append(ChildChunk.embedding.is_(None))
+        if enabled is not None:
+            filters.append(ChildChunk.enabled == enabled)
+
+        count = (
+            await session.execute(
+                select(func.count())
+                .select_from(ChildChunk)
+                .join(Document, ChildChunk.document_id == Document.id)
+                .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
+                .where(*filters)
+            )
+        ).scalar_one()
+        rows = (
+            await session.execute(
+                select(ChildChunk, Document.name, TreeNode.title)
+                .join(Document, ChildChunk.document_id == Document.id)
+                .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
+                .outerjoin(TreeNode, ChildChunk.tree_node_id == TreeNode.id)
+                .where(*filters)
+                .order_by(ChildChunk.position.asc(), ChildChunk.id.asc())
+                .offset(offset)
+                .limit(limit)
+            )
+        ).all()
+        items = []
+        for child, document_name, node_title in rows:
+            child._document_name = document_name
+            child._section_path = node_title
+            items.append(child)
+        return items, int(count)
+
+
 async def update_document_metadata(doc_id, user_id, metadata) -> Document:
     user_uuid = _uuid(user_id, "用户 ID")
     async with async_session() as session:
@@ -477,6 +557,32 @@ def asset_output(asset, scope: str) -> dict:
         "enabled": asset.enabled,
         "recall_count": asset.recall_count,
         "created_at": asset.created_at.isoformat() if asset.created_at else "",
+    }
+
+
+def child_chunk_output(child) -> dict:
+    """子分段输出（父子分段模式下的检索单元）。
+
+    Args:
+        child: ChildChunk 实例（list_child_chunks 已挂载 _document_name/_section_path）。
+
+    Returns:
+        子分段字典（对齐前端 ChildChunkAsset）。
+    """
+    return {
+        "id": str(child.id),
+        "kb_id": child.kb_id,
+        "document_id": str(child.document_id),
+        "document_name": getattr(child, "_document_name", None),
+        "tree_node_id": str(child.tree_node_id),
+        "section_path": getattr(child, "_section_path", None),
+        "position": child.position,
+        "content": child.content,
+        "char_count": child.char_count,
+        "embedding_model": child.embedding_model,
+        "metadata": dict(child.metadata_ or {}),
+        "enabled": child.enabled,
+        "created_at": child.created_at.isoformat() if child.created_at else "",
     }
 
 

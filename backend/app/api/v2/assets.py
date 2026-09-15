@@ -275,6 +275,45 @@ async def list_chunks(
     )
 
 
+@router.get("/child-chunks")
+async def list_child_chunks(
+    kb_id: str,
+    keyword: str | None = None,
+    document_id: str | None = None,
+    vector_state: Literal["all", "vectorized", "pending"] = "all",
+    enabled: bool | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    me=Depends(get_current_user),
+):
+    """列出子分段（父子分段模式下的检索单元）。
+
+    Args:
+        kb_id: 知识库 ID。
+        keyword: 内容关键词。
+        document_id: 按文档过滤。
+        vector_state: all/vectorized/pending。
+        enabled: 启用状态过滤。
+        page/page_size: 分页。
+    """
+    items, total = await asset_service.list_child_chunks(
+        kb_id=kb_id,
+        user_id=me.id,
+        keyword=keyword,
+        document_id=document_id,
+        vector_state=vector_state,
+        enabled=enabled,
+        page=page,
+        page_size=page_size,
+    )
+    return ok(
+        {
+            "list": [asset_service.child_chunk_output(item) for item in items],
+            "total": total,
+        }
+    )
+
+
 @router.post("/chunks/reembed")
 async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
     kb_uuid = _validate_uuid(body.kb_id, "知识库 ID")
