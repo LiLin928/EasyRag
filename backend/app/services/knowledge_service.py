@@ -15,10 +15,30 @@ async def list_kbs(user_id):
         return rows
 
 
-async def create_kb(user_id, name, description, scene, cover):
-    """新建知识库。"""
+async def create_kb(
+    user_id,
+    name,
+    description,
+    scene,
+    cover,
+    *,
+    retrieval_mode=None,
+    child_chunk_size=None,
+    child_chunk_overlap=None,
+):
+    """新建知识库。
+
+    retrieval_mode/child_chunk_size/child_chunk_overlap 为父子分段配置（方案§9），
+    不传时使用模型默认值。
+    """
     async with async_session() as s:
         kb = KnowledgeBase(user_id=user_id, name=name, description=description, scene=scene, cover=cover)
+        if retrieval_mode is not None:
+            kb.retrieval_mode = retrieval_mode
+        if child_chunk_size is not None:
+            kb.child_chunk_size = child_chunk_size
+        if child_chunk_overlap is not None:
+            kb.child_chunk_overlap = child_chunk_overlap
         s.add(kb)
         await s.flush()
         await ensure_default_fields(kb.id, session=s)

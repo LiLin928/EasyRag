@@ -27,6 +27,9 @@ def _out(kb) -> dict:
         id=str(kb.id), name=kb.name, description=kb.description, scene=kb.scene,
         cover=kb.cover, doc_count=kb.doc_count, total_size=kb.total_size,
         chunk_count=0, last_test_at=None, created_at=created,
+        retrieval_mode=kb.retrieval_mode,
+        child_chunk_size=kb.child_chunk_size,
+        child_chunk_overlap=kb.child_chunk_overlap,
         desc=kb.description or "",
         docCount=kb.doc_count,
         totalSize=_format_size(kb.total_size),
@@ -51,14 +54,24 @@ async def detail(kb_id: str, me=Depends(get_current_user)):
 @router.post("")
 async def create(body: KBCreate, me=Depends(get_current_user)):
     """新建知识库。"""
-    kb = await ks.create_kb(me.id, body.name, body.desc, body.scene, body.cover)
+    kb = await ks.create_kb(
+        me.id, body.name, body.desc, body.scene, body.cover,
+        retrieval_mode=body.retrieval_mode,
+        child_chunk_size=body.child_chunk_size,
+        child_chunk_overlap=body.child_chunk_overlap,
+    )
     return ok(_out(kb))
 
 
 @router.put("/{kb_id}")
 async def update(kb_id: str, body: KBUpdate, me=Depends(get_current_user)):
     """更新知识库。"""
-    kb = await ks.update_kb(kb_id, name=body.name, description=body.desc, scene=body.scene, cover=body.cover)
+    kb = await ks.update_kb(
+        kb_id, name=body.name, description=body.desc, scene=body.scene, cover=body.cover,
+        retrieval_mode=body.retrieval_mode,
+        child_chunk_size=body.child_chunk_size,
+        child_chunk_overlap=body.child_chunk_overlap,
+    )
     return ok(_out(kb))
 
 

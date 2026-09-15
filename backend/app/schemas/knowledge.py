@@ -1,7 +1,7 @@
 """knowledge 相关 Pydantic 请求/响应模型。"""
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class KBCreate(BaseModel):
@@ -11,6 +11,10 @@ class KBCreate(BaseModel):
     desc: str | None = None
     scene: str = "general"
     cover: str | None = None
+    # 父子分段配置（方案§9）：不传则使用模型默认值
+    retrieval_mode: Literal["traditional", "parent_child"] | None = None
+    child_chunk_size: int | None = Field(default=None, ge=50, le=2000)
+    child_chunk_overlap: int | None = Field(default=None, ge=0, le=500)
 
 
 class KBUpdate(BaseModel):
@@ -20,6 +24,10 @@ class KBUpdate(BaseModel):
     desc: str | None = None
     scene: str | None = None
     cover: str | None = None
+    # 父子分段配置（方案§9）：None 表示不修改
+    retrieval_mode: Literal["traditional", "parent_child"] | None = None
+    child_chunk_size: int | None = Field(default=None, ge=50, le=2000)
+    child_chunk_overlap: int | None = Field(default=None, ge=0, le=500)
 
 
 class KBOut(BaseModel):
@@ -35,6 +43,10 @@ class KBOut(BaseModel):
     chunk_count: int = 0
     last_test_at: str | None = None
     created_at: str
+    # 父子分段配置（方案§9）
+    retrieval_mode: str = "traditional"
+    child_chunk_size: int = 200
+    child_chunk_overlap: int = 50
     # camelCase aliases for legacy frontend
     desc: str = ""
     docCount: int = 0

@@ -143,8 +143,9 @@ async def _parse_document_async(
     await _save_elements_to_db(parsed_doc.elements, doc_id, tree)
 
     # ========== 分块和向量化 ==========
-    # 判断是否使用父子分段模式
-    use_parent_child = True  # TODO: 从配置读取
+    # 按知识库配置决定检索模式（方案§9：知识库级别配置）
+    kb_config = await _load_kb_chunk_config(kb_id)
+    use_parent_child = kb_config["retrieval_mode"] == "parent_child"
 
     if use_parent_child:
         # ===== 父子分段模式 =====
@@ -157,8 +158,8 @@ async def _parse_document_async(
         from app.core.parser.parent_child_chunker import ParentChildChunker
 
         chunker = ParentChildChunker(
-            child_chunk_size=200,
-            child_chunk_overlap=50
+            child_chunk_size=kb_config["child_chunk_size"],
+            child_chunk_overlap=kb_config["child_chunk_overlap"]
         )
 
         # 将 TreeNode 列表转换为字典格式
@@ -248,6 +249,40 @@ async def _parse_document_async(
 
     logger.info(f"Parse task completed: doc_id={doc_id}")
     return result
+
+
+async def _load_kb_chunk_config(kb_id: str) -> dict:
+    """加载知识库的父子分段配置（方案§9：知识库级别配置）。
+
+    Args:
+        kb_id: 知识库 ID（UUID 字符串）
+
+    Returns:
+        dict: {retrieval_mode, child_chunk_size, child_chunk_overlap}
+        知识库不存在或 ID 非法时返回默认值（traditional/200/50）。
+    """
+    import uuid
+    from app.models.knowledge_base import KnowledgeBase
+
+    defaults = {
+        "retrieval_mode": "traditional",
+        "child_chunk_size": 200,
+        "child_chunk_overlap": 50,
+    }
+    try:
+        kb_uuid = uuid.UUID(kb_id)
+    except (TypeError, ValueError):
+        return defaults
+
+    async with async_session() as session:
+        kb = await session.get(KnowledgeBase, kb_uuid)
+        if not kb:
+            return defaults
+        return {
+            "retrieval_mode": kb.retrieval_mode or "traditional",
+            "child_chunk_size": kb.child_chunk_size or 200,
+            "child_chunk_overlap": kb.child_chunk_overlap or 50,
+        }
 
 
 async def _save_chunks_to_db(chunks: list[dict], doc_id: str, kb_id: str) -> int:

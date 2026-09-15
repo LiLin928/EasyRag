@@ -22,6 +22,9 @@ class KnowledgeBase(Base, UUIDPk, TimestampMixin):
         retrieval_top_k: 检索返回条数，默认 5。
         doc_count: 文档数（维护字段）。
         total_size: 文档总字节数（维护字段）。
+        retrieval_mode: 检索模式 traditional(传统单层) / parent_child(父子分段)，默认 traditional。
+        child_chunk_size: 父子分段模式下子分段目标大小（字符），默认 200。
+        child_chunk_overlap: 父子分段模式下子分段重叠字符数，默认 50。
     """
 
     __tablename__ = "knowledge_bases"
@@ -35,6 +38,22 @@ class KnowledgeBase(Base, UUIDPk, TimestampMixin):
     retrieval_top_k: Mapped[int] = mapped_column(Integer, default=5)
     doc_count: Mapped[int] = mapped_column(Integer, default=0)
     total_size: Mapped[int] = mapped_column(BigInteger, default=0)
+    # 父子分段相关配置（方案§9：知识库级别配置）
+    retrieval_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="traditional",
+        comment="检索模式：traditional(传统单层) / parent_child(父子分段)",
+    )
+    child_chunk_size: Mapped[int] = mapped_column(
+        Integer,
+        default=200,
+        comment="父子分段模式下子分段目标大小（字符数）",
+    )
+    child_chunk_overlap: Mapped[int] = mapped_column(
+        Integer,
+        default=50,
+        comment="父子分段模式下子分段重叠字符数",
+    )
     embedding_model_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("model_configs.id", ondelete="SET NULL"), nullable=True
     )
