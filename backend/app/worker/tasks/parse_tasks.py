@@ -19,24 +19,24 @@ from app.db.session import async_session  # 添加异步 session 导入
 
 logger = logging.getLogger(__name__)
 
-# Celery Worker 持久事件循环
-_event_loop = None
 
+def _run_async(coro):
+    """运行异步协程
 
-def _get_event_loop():
-    """获取或创建持久事件循环
+    使用 asyncio.run() 确保每个任务有独立的事件循环，
+    避免 asyncpg "another operation is in progress" 错误。
 
-    Windows 环境必须使用 WindowsSelectorEventLoopPolicy，
-    否则 asyncpg 会报错：another operation is in progress
+    Args:
+        coro: 异步协程对象
+
+    Returns:
+        协程的返回值
     """
-    global _event_loop
-    if _event_loop is None or _event_loop.is_closed():
-        # Windows 环境：设置正确的事件循环策略
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        _event_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_event_loop)
-    return _event_loop
+    # Windows 环境：设置正确的事件循环策略
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    return asyncio.run(coro)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
@@ -57,9 +57,8 @@ def parse_document(self, doc_id: str, file_key: str, kb_id: str) -> dict:
     stream_key = f"parse:{doc_id}"
 
     try:
-        # 使用持久事件循环（避免连接池失效）
-        loop = _get_event_loop()
-        result = loop.run_until_complete(
+        # 使用独立事件循环（避免 asyncpg 并发错误）
+        result = _run_async(
             _parse_document_async(self, doc_id, file_key, kb_id, stream_key)
         )
         return result
@@ -69,8 +68,7 @@ def parse_document(self, doc_id: str, file_key: str, kb_id: str) -> dict:
 
         # 更新文档状态为 failed
         try:
-            loop = _get_event_loop()
-            loop.run_until_complete(_update_document_status(doc_id, "failed"))
+            _run_async(_update_document_status(doc_id, "failed"))
         except Exception as update_error:
             logger.error(f"Failed to update document status: {update_error}")
 
