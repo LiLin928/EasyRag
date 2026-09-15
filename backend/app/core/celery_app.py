@@ -77,9 +77,12 @@ celery_app.conf.update(
     task_max_retries=3,
     task_default_retry_delay=60,  # 60秒后重试
 
-    # Worker 配置
+    # Worker 配置 - Windows 兼容
+    # Windows 不支持 prefork，使用 solo 模式
+    # 注意：solo 模式不支持并发，一次只能处理一个任务
+    worker_pool="solo",  # Windows 兼容模式
     worker_prefetch_multiplier=1,
-    worker_concurrency=4,
+    worker_concurrency=1,  # solo 模式下 concurrency 应为 1
 
     # 结果过期时间
     result_expires=3600,
