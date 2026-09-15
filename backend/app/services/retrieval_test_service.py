@@ -585,9 +585,25 @@ async def start_run(
     chunk_metadata=None,
 ) -> RetrievalTestRun:
     clean_ks = _validate_ks([3, 5, 10] if ks is None else ks)
-    clean_override = validate_retrieval_config(override_config or {}, partial=True)
+    # mode 不是检索参数（不在 SYSTEM_DEFAULTS），单独提取并校验，
+    # 避免被 validate_retrieval_config 当作未知键拒绝。
+    raw_override = dict(override_config or {})
+    mode_override = raw_override.pop("mode", None)
+    if mode_override is not None and mode_override not in ("traditional", "parent_child"):
+        raise BizException(
+            ErrorCode.PARAM_ERROR, "mode must be traditional or parent_child"
+        )
+    clean_override = validate_retrieval_config(raw_override, partial=True)
     async with async_session() as session:
         test_set = await _set_from(session, test_set_id, user_id, for_update=True)
+        kb = (
+            await session.execute(
+                select(KnowledgeBase).where(KnowledgeBase.id == test_set.kb_id)
+            )
+        ).scalar_one_or_none()
+        retrieval_mode = _resolve_retrieval_mode(
+            getattr(kb, "retrieval_mode", None) if kb else None, mode_override
+        )
         active = (
             await session.execute(
                 select(RetrievalTestRun)
@@ -683,6 +699,7 @@ async def start_run(
                 "resolved": effective.get("resolved", {}),
             },
             "ks": clean_ks,
+            "retrieval_mode": retrieval_mode,
             "embedding_model": _safe_embedding_snapshot(
                 embedding_info,
                 models.get(str(embedding_info.get("id"))) if embedding_info else None,
@@ -818,6 +835,92 @@ def _normalize_candidates(chunks: list[dict]) -> list[dict]:
             }
         )
     return normalized
+
+
+def _resolve_retrieval_mode(kb_retrieval_mode, mode_override) -> str:
+    """解析本次召回测试的检索模式：显式 override 优先，否则用 KB 自身模式，
+    都缺失时默认 traditional。
+
+    Args:
+        kb_retrieval_mode: 知识库 retrieval_mode（traditional / parent_child）。
+        mode_override: 用例运行时显式选择的模式（traditional / parent_child / None）。
+
+    Returns:
+        解析后的模式字符串。
+    """
+    if mode_override in ("traditional", "parent_child"):
+        return mode_override
+    if kb_retrieval_mode in ("traditional", "parent_child"):
+        return kb_retrieval_mode
+    return "traditional"
+
+
+def _normalize_parent_child_candidates(results: list[dict]) -> list[dict]:
+    """把父子分段检索结果归一化为召回候选格式。
+
+    parent_child_search 返回的父分段用 `score` 字段，而候选表/前端期望
+    `vector_score`；此处做字段映射，便于复用 _apply_case_metrics 与结果展示。
+    """
+    candidates = []
+    for rank, r in enumerate(results, start=1):
+        candidates.append(
+            {
+                "rank": rank,
+                "chunk_id": r.get("id"),
+                "document_id": r.get("document_id"),
+                "document_name": r.get("document_name"),
+                "section_path": r.get("section_path") or r.get("title"),
+                "page_number": None,
+                "char_count": None,
+                "content": r.get("content"),
+                "vector_score": r.get("score"),
+                "metadata": r.get("metadata") or {},
+            }
+        )
+    return candidates
+
+
+async def _run_parent_child_case(
+    pipeline: "RetrievalPipeline",
+    run: RetrievalTestRun,
+    query: str,
+    ks: list[int],
+    metadata_filter: MetadataFilter | None,
+) -> tuple[list[dict], "RetrievalResult"]:
+    """父子模式下执行单条用例检索：查 child_chunks，映射回父分段。
+
+    复用 pipeline._embed_query 生成查询向量，调用 parent_child_search，
+    返回 (候选列表, 伪 RetrievalResult)。父子模式不走 rerank/nav，
+    用 SimpleNamespace 占位以兼容 _apply_case_metrics。
+    """
+    from types import SimpleNamespace
+
+    from app.core.retrieval.parent_child_search import parent_child_search
+
+    q_emb = await pipeline._embed_query(query)
+    results = await parent_child_search(
+        q_emb=q_emb,
+        kb_ids=[str(run.kb_id)],
+        doc_ids=None,
+        scope=None,
+        top_k=max(ks),
+        metadata_filter=metadata_filter,
+        # 不按 embedding_model 过滤——子分段 embedding_model 列存的模型
+        # 标识与配置项 name 不一定一致，过滤会误杀；召回测试统一不过滤。
+        embedding_model=None,
+        similarity_threshold=(
+            run.config_snapshot.get("settings", {}).get("resolved", {}).get(
+                "similarity_threshold"
+            )
+        ),
+    )
+    candidates = _normalize_parent_child_candidates(results)
+    retrieval = SimpleNamespace(
+        rerank_triggered=False,
+        rerank_skipped_reason="parent_child_mode",
+        nav_info=None,
+    )
+    return candidates, retrieval
 
 
 def _apply_case_metrics(
@@ -997,6 +1100,7 @@ async def execute_run(run_id: str) -> None:
         run.config_snapshot.get("document_metadata"),
         run.config_snapshot.get("chunk_metadata"),
     )
+    retrieval_mode = (run.config_snapshot or {}).get("retrieval_mode", "traditional")
     while True:
         if await _current_run_status(run_uuid) != "running":
             await _skip_pending_results(run_uuid)
@@ -1014,18 +1118,25 @@ async def execute_run(run_id: str) -> None:
 
         started = perf_counter()
         try:
-            retrieval = await pipeline.search(
-                result.query,
-                kb_ids=[str(run.kb_id)],
-                doc_ids=None,
-                scope=None,
-                metadata_filter=metadata_filter,
-                top_k=max(ks),
-                enable_nav=False,
-                count_recall=False,
-            )
+            if retrieval_mode == "parent_child":
+                # 父子库的分段在 child_chunks 表，传统 pipeline 查 chunks
+                # 表会 0 命中，故改走 parent_child_search 映射回父分段。
+                candidates, retrieval = await _run_parent_child_case(
+                    pipeline, run, result.query, ks, metadata_filter
+                )
+            else:
+                retrieval = await pipeline.search(
+                    result.query,
+                    kb_ids=[str(run.kb_id)],
+                    doc_ids=None,
+                    scope=None,
+                    metadata_filter=metadata_filter,
+                    top_k=max(ks),
+                    enable_nav=False,
+                    count_recall=False,
+                )
+                candidates = _normalize_candidates(retrieval.chunks)
             latency_ms = max(0, round((perf_counter() - started) * 1000))
-            candidates = _normalize_candidates(retrieval.chunks)
             _apply_case_metrics(result, candidates, ks, retrieval)
             result.latency_ms = latency_ms
             error = None
