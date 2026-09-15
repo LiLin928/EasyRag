@@ -194,7 +194,10 @@ async def _parse_document_async(
         })
 
         embedder = Embedder()
-        vector_count = await embedder.embed(child_chunks, kb_id)
+        # 父子模式向量化子分段，必须写入 child_chunks 表（ChildChunk），
+        # 而非 chunks 表——二表主键不互通，错表会导致向量被静默丢弃。
+        from app.models.child_chunk import ChildChunk
+        vector_count = await embedder.embed(child_chunks, kb_id, model_cls=ChildChunk)
 
         result = {
             "doc_id": doc_id,
@@ -680,22 +683,33 @@ def reembed_chunks(self, kb_id: str, document_ids: list[str], chunk_ids: list[st
 
 
 async def _reembed_chunks_async(kb_id: str, document_ids: list[str], chunk_ids: list[str]) -> dict:
-    """异步重建索引"""
+    """异步重建索引
+
+    按知识库检索模式选择目标表：parent_child 模式重建 child_chunks
+    （ChildChunk），否则重建 chunks（Chunk）。二者主键不互通，错表会
+    导致重建命中 0 行。
+    """
     import uuid
     from sqlalchemy import select
     from app.models.chunk import Chunk
+    from app.models.child_chunk import ChildChunk
+
+    # 0. 判断检索模式以选表
+    kb_config = await _load_kb_chunk_config(kb_id)
+    is_parent_child = kb_config["retrieval_mode"] == "parent_child"
+    model_cls = ChildChunk if is_parent_child else Chunk
 
     # 1. 查询需要重建的 chunks
     async with async_session() as session:
-        query = select(Chunk).where(Chunk.kb_id == kb_id)
+        query = select(model_cls).where(model_cls.kb_id == kb_id)
 
         if document_ids:
             doc_uuids = [uuid.UUID(doc_id) for doc_id in document_ids]
-            query = query.where(Chunk.document_id.in_(doc_uuids))
+            query = query.where(model_cls.document_id.in_(doc_uuids))
 
         if chunk_ids:
             chunk_uuids = [uuid.UUID(chunk_id) for chunk_id in chunk_ids]
-            query = query.where(Chunk.id.in_(chunk_uuids))
+            query = query.where(model_cls.id.in_(chunk_uuids))
 
         chunks = (await session.execute(query)).scalars().all()
 
@@ -717,8 +731,8 @@ async def _reembed_chunks_async(kb_id: str, document_ids: list[str], chunk_ids: 
         for chunk in chunks
     ]
 
-    # 4. 重新向量化
-    updated = await embedder.embed(chunk_data, kb_id)
+    # 4. 重新向量化（按实际表写入）
+    updated = await embedder.embed(chunk_data, kb_id, model_cls=model_cls)
 
     return {"success": True, "updated": updated}
 

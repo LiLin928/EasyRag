@@ -292,3 +292,71 @@ async def test_embedder_handles_partial_failure():
     # 实际实现应该处理这种情况，这里只是示例
     # 暂时跳过这个测试
     pass
+
+@pytest.mark.asyncio
+async def test_update_embeddings_targets_child_chunks_table_when_parent_child():
+    """父子模式下向量必须写入 child_chunks 表，而非 chunks 表。
+
+    回归：曾因 Embedder._update_embeddings 硬编码 update(Chunk)，导致
+    父子分段的子分段 embedding 永远为 null，前端 segments 标签显示
+    "未向量化"。
+    """
+    from app.core.parser.embedder import Embedder
+    from app.models.child_chunk import ChildChunk
+
+    chunks = [{"id": str(uuid.uuid4()), "content": "子分段内容"}]
+    vectors = [[0.1] * 1024]
+    captured = []
+
+    with patch("app.core.parser.embedder.async_session") as mock_ctx:
+        session = AsyncMock()
+        mock_ctx.return_value.__aenter__.return_value = session
+
+        async def _exec(stmt, *a, **kw):
+            captured.append(stmt)
+
+        session.execute = AsyncMock(side_effect=_exec)
+        await Embedder._update_embeddings(
+            chunks, vectors, "text-embedding-3-small", model_cls=ChildChunk
+        )
+
+    assert len(captured) == 1
+    sql = str(captured[0].compile(compile_kwargs={"literal_binds": True})).lower()
+    assert "child_chunks" in sql
+
+
+@pytest.mark.asyncio
+async def test_embedder_embed_routes_to_child_chunks_for_parent_child(
+    sample_kb, sample_model_config, mock_embeddings
+):
+    """embed(model_cls=ChildChunk) 应把 model_cls 透传到 _update_embeddings。"""
+    from app.core.parser.embedder import Embedder
+    from app.models.child_chunk import ChildChunk
+
+    kb_id = str(sample_kb.id)
+    child_chunks = [{"id": str(uuid.uuid4()), "content": "c1", "kb_id": kb_id}]
+    vectors = [[0.1] * 1024]
+    captured = []
+
+    with patch("app.core.parser.embedder.get_kb_with_model_config", new_callable=AsyncMock) as mock_get_kb, \
+         patch("app.core.parser.embedder.build_embeddings_from_config", new_callable=AsyncMock) as mock_build, \
+         patch("app.core.parser.embedder.async_session") as mock_session_ctx:
+        mock_get_kb.return_value = (sample_kb, sample_model_config)
+        mock_build.return_value = mock_embeddings
+        mock_embeddings.aembed_documents = AsyncMock(return_value=vectors)
+
+        session = AsyncMock()
+        mock_session_ctx.return_value.__aenter__.return_value = session
+
+        async def _exec(stmt, *a, **kw):
+            captured.append(stmt)
+
+        session.execute = AsyncMock(side_effect=_exec)
+
+        embedder = Embedder(batch_size=20)
+        count = await embedder.embed(child_chunks, kb_id, model_cls=ChildChunk)
+
+        assert count == 1
+        assert len(captured) == 1
+        sql = str(captured[0].compile(compile_kwargs={"literal_binds": True})).lower()
+        assert "child_chunks" in sql

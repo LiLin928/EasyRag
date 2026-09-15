@@ -40,7 +40,8 @@ class Embedder:
     async def embed(
         self,
         chunks: List[dict],
-        kb_id: str
+        kb_id: str,
+        model_cls=Chunk
     ) -> int:
         """
         向量化 chunks
@@ -48,11 +49,14 @@ class Embedder:
         Args:
             chunks: 分块列表，每项包含 id, content, document_id, kb_id
             kb_id: 知识库 ID
+            model_cls: 写入向量的 ORM 模型类。传统分块为 Chunk，父子分段的
+                子分段为 ChildChunk——二者主键 id 互不相通，必须按实际类型
+                写入对应表，否则 UPDATE 命中 0 行、向量被静默丢弃。
 
         Returns:
             int: 成功向量化的数量
         """
-        logger.info(f"Embedding chunks: kb_id={kb_id}, count={len(chunks)}")
+        logger.info(f"Embedding chunks: kb_id={kb_id}, count={len(chunks)}, table={model_cls.__tablename__}")
 
         if not chunks:
             return 0
@@ -77,7 +81,7 @@ class Embedder:
                 await asyncio.sleep(2 ** attempt)  # 指数退避
 
         # 4. 更新数据库
-        await self._update_embeddings(chunks, vectors, model_name)
+        await self._update_embeddings(chunks, vectors, model_name, model_cls)
 
         logger.info(f"Embedding completed: success={len(chunks)}/{len(chunks)}")
         return len(chunks)
@@ -136,7 +140,8 @@ class Embedder:
     async def _update_embeddings(
         chunks: List[dict],
         vectors: List[List[float]],
-        model_name: str
+        model_name: str,
+        model_cls=Chunk
     ) -> None:
         """
         更新向量到数据库
@@ -145,6 +150,8 @@ class Embedder:
             chunks: 分块列表
             vectors: 向量列表
             model_name: 模型名称
+            model_cls: 目标 ORM 模型类（Chunk 或 ChildChunk）。按传入分块
+                的实际类型选择，避免向错表 UPDATE 命中 0 行。
         """
         import uuid
 
@@ -152,8 +159,8 @@ class Embedder:
             for chunk, vector in zip(chunks, vectors):
                 chunk_uuid = uuid.UUID(chunk["id"])
                 await session.execute(
-                    update(Chunk)
-                    .where(Chunk.id == chunk_uuid)
+                    update(model_cls)
+                    .where(model_cls.id == chunk_uuid)
                     .values(
                         embedding=vector,
                         embedding_model=model_name
@@ -161,4 +168,4 @@ class Embedder:
                 )
 
             await session.commit()
-            logger.info(f"Updated {len(chunks)} chunks with embeddings")
+            logger.info(f"Updated {len(chunks)} {model_cls.__tablename__} rows with embeddings")
