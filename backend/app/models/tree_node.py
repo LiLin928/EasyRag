@@ -25,6 +25,9 @@ class TreeNode(Base, UUIDPk, TimestampMixin):
         element_count: 节点下元素数。
         page_start/page_end: 起止页码。
         nav_embedding: 导航向量（用于"导航到章节"语义匹配）。
+        parent_chunk_mode: 父分段模式（paragraph/full-section）。
+        child_chunk_count: 子分段数量。
+        parent_content: 父分段完整内容（所有元素拼接）。
     """
 
     __tablename__ = "doc_tree_nodes"
@@ -39,6 +42,23 @@ class TreeNode(Base, UUIDPk, TimestampMixin):
     page_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nav_embedding: Mapped[Optional[list]] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+
+    # 父子分段相关字段
+    parent_chunk_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="paragraph",
+        comment="父分段模式：paragraph(段落模式) / full-section(完整章节)"
+    )
+    child_chunk_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        comment="子分段数量"
+    )
+    parent_content: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="父分段完整内容（所有元素拼接）"
+    )
 
 
 class ElementPosition(Base, UUIDPk, TimestampMixin):

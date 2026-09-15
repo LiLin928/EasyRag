@@ -1,5 +1,5 @@
 """Retrieval debug API."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user
@@ -27,6 +27,7 @@ class SearchReq(BaseModel):
     override_config: dict = {}
     document_metadata: dict = {}
     chunk_metadata: dict = {}
+    mode: str = "traditional"  # 检索模式：traditional(传统) / parent_child(父子分段)
 
 
 def _system_effective() -> dict:
@@ -39,10 +40,58 @@ def _system_effective() -> dict:
 
 @router.post("/search")
 async def search_api(req: SearchReq, me=Depends(get_current_user)):
-    """Run a metadata-aware retrieval test without incrementing recall counts."""
+    """Run a metadata-aware retrieval test without incrementing recall counts.
+
+    Args:
+        req: 检索请求参数
+            - mode: 检索模式
+                - traditional: 传统检索（基于 chunks 表）
+                - parent_child: 父子分段检索（基于 child_chunks 表，映射回父分段）
+    """
     if req.kb_ids:
         await metadata_service.require_owned_kbs(req.kb_ids, me.id)
 
+    # ========== 父子分段检索模式 ==========
+    if req.mode == "parent_child":
+        from app.core.retrieval.parent_child_search import parent_child_search
+        from app.providers.langchain_factory import build_embeddings
+
+        # 获取向量模型
+        if len(req.kb_ids) == 1:
+            effective = await get_effective_settings(
+                req.kb_ids[0],
+                user_id=me.id,
+                override=req.override_config or None,
+            )
+            embedding_model_name = effective.get("embedding_model")
+        else:
+            effective = _system_effective()
+            embedding_model_name = None
+
+        # 生成查询向量
+        embeddings = await build_embeddings()
+        q_emb = await embeddings.aembed_query(req.question)
+
+        # 执行父子分段检索
+        results = await parent_child_search(
+            q_emb=q_emb,
+            kb_ids=req.kb_ids,
+            doc_ids=req.document_ids or None,
+            scope=None,
+            top_k=req.top_k or 20,
+            metadata_filter=None,  # TODO: 支持元数据过滤
+            embedding_model=embedding_model_name,
+        )
+
+        return ok({
+            "results": results,
+            "rerank_triggered": False,
+            "rerank_skipped_reason": "parent_child_mode",
+            "mode": "parent_child",
+            "nav_info": None,
+        })
+
+    # ========== 传统检索模式 ==========
     metadata_filter = None
     if req.kb_ids and (req.document_metadata or req.chunk_metadata):
         metadata_filter = MetadataFilter(

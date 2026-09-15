@@ -142,42 +142,104 @@ async def _parse_document_async(
     # 4.6 保存元素到数据库
     await _save_elements_to_db(parsed_doc.elements, doc_id, tree)
 
-    # 5. 分块
-    _publish_sync(stream_key, "task_progress", {
-        "doc_id": doc_id,
-        "pct": 60,
-        "step": "chunking"
-    })
+    # ========== 分块和向量化 ==========
+    # 判断是否使用父子分段模式
+    use_parent_child = True  # TODO: 从配置读取
 
-    chunker = Chunker(chunk_size=512, chunk_overlap=50)
-    chunks = await chunker.chunk(parsed_doc.elements, doc_id, kb_id)
+    if use_parent_child:
+        # ===== 父子分段模式 =====
+        _publish_sync(stream_key, "task_progress", {
+            "doc_id": doc_id,
+            "pct": 60,
+            "step": "parent_child_chunking"
+        })
 
-    # 5.5 保存 chunks 到数据库
-    await _save_chunks_to_db(chunks, doc_id, kb_id)
+        from app.core.parser.parent_child_chunker import ParentChildChunker
 
-    # 6. 向量化
-    _publish_sync(stream_key, "task_progress", {
-        "doc_id": doc_id,
-        "pct": 80,
-        "step": "embedding",
-        "chunk_count": len(chunks)
-    })
+        chunker = ParentChildChunker(
+            child_chunk_size=200,
+            child_chunk_overlap=50
+        )
 
-    embedder = Embedder()
-    vector_count = await embedder.embed(chunks, kb_id)
+        # 将 TreeNode 列表转换为字典格式
+        tree_nodes = [
+            {
+                'node_id': node.node_id,
+                'title': node.title,
+                'level': node.level,
+                'element_ids': node.element_ids
+            }
+            for node in tree.nodes
+        ]
 
-    # 6.5 更新文档状态为 done
+        child_chunks = await chunker.chunk(
+            tree_nodes,
+            parsed_doc.elements,
+            doc_id,
+            kb_id
+        )
+
+        # 保存子分段到数据库
+        await _save_child_chunks_to_db(child_chunks, doc_id, kb_id)
+
+        # 向量化子分段
+        _publish_sync(stream_key, "task_progress", {
+            "doc_id": doc_id,
+            "pct": 80,
+            "step": "embedding",
+            "chunk_count": len(child_chunks)
+        })
+
+        embedder = Embedder()
+        vector_count = await embedder.embed(child_chunks, kb_id)
+
+        result = {
+            "doc_id": doc_id,
+            "kb_id": kb_id,
+            "status": "success",
+            "chunks": len(child_chunks),
+            "vectors": vector_count,
+            "mode": "parent_child"
+        }
+
+    else:
+        # ===== 传统模式 =====
+        _publish_sync(stream_key, "task_progress", {
+            "doc_id": doc_id,
+            "pct": 60,
+            "step": "chunking"
+        })
+
+        chunker = Chunker(chunk_size=512, chunk_overlap=50)
+        chunks = await chunker.chunk(parsed_doc.elements, doc_id, kb_id)
+
+        # 保存 chunks 到数据库
+        await _save_chunks_to_db(chunks, doc_id, kb_id)
+
+        # 向量化
+        _publish_sync(stream_key, "task_progress", {
+            "doc_id": doc_id,
+            "pct": 80,
+            "step": "embedding",
+            "chunk_count": len(chunks)
+        })
+
+        embedder = Embedder()
+        vector_count = await embedder.embed(chunks, kb_id)
+
+        result = {
+            "doc_id": doc_id,
+            "kb_id": kb_id,
+            "status": "success",
+            "chunks": len(chunks),
+            "vectors": vector_count,
+            "mode": "traditional"
+        }
+
+    # 更新文档状态为 done
     await _update_document_status(doc_id, "done")
 
-    # 7. 完成
-    result = {
-        "doc_id": doc_id,
-        "kb_id": kb_id,
-        "status": "success",
-        "chunks": len(chunks),
-        "vectors": vector_count,
-    }
-
+    # 完成
     _publish_sync(stream_key, "task_completed", {
         "doc_id": doc_id,
         "pct": 100,
@@ -245,6 +307,72 @@ async def _save_chunks_to_db(chunks: list[dict], doc_id: str, kb_id: str) -> int
         await session.commit()
         logger.info(f"Saved {len(chunks)} chunks to database: doc_id={doc_id}")
         return len(chunks)
+
+
+async def _save_child_chunks_to_db(
+    child_chunks: list[dict],
+    doc_id: str,
+    kb_id: str
+) -> int:
+    """保存子分段到数据库
+
+    Args:
+        child_chunks: 子分段列表（字典格式）
+        doc_id: 文档 ID
+        kb_id: 知识库 ID
+
+    Returns:
+        保存的子分段数量
+    """
+    import uuid
+    from app.models.child_chunk import ChildChunk
+    from app.models.tree_node import TreeNode
+
+    if not child_chunks:
+        return 0
+
+    async with async_session() as session:
+        # 统计每个 tree_node_id 的子分段数量
+        node_chunk_count = {}
+        for chunk_dict in child_chunks:
+            tree_node_id = chunk_dict['tree_node_id']
+            node_chunk_count[tree_node_id] = node_chunk_count.get(tree_node_id, 0) + 1
+
+        # 批量更新树节点的 child_chunk_count 和 parent_content
+        for tree_node_id, count in node_chunk_count.items():
+            tree_node_uuid = uuid.UUID(tree_node_id)
+            tree_node = await session.get(TreeNode, tree_node_uuid)
+            if tree_node:
+                tree_node.child_chunk_count = count
+                # 收集该节点的所有子分段内容，用于生成父分段内容
+                node_chunks = [c for c in child_chunks if c['tree_node_id'] == tree_node_id]
+                if node_chunks:
+                    # 按position排序后拼接
+                    sorted_chunks = sorted(node_chunks, key=lambda x: x['position'])
+                    tree_node.parent_content = '\n\n'.join(c['content'] for c in sorted_chunks)
+
+        # 插入子分段
+        for chunk_dict in child_chunks:
+            child_chunk = ChildChunk(
+                id=uuid.uuid4(),
+                document_id=uuid.UUID(chunk_dict['doc_id']),
+                tree_node_id=uuid.UUID(chunk_dict['tree_node_id']),
+                kb_id=str(chunk_dict['kb_id']),
+                position=chunk_dict['position'],
+                content=chunk_dict['content'],
+                content_search=chunk_dict['content'],
+                char_count=chunk_dict.get('char_count', len(chunk_dict['content'])),
+                metadata_=chunk_dict.get('metadata', {}),
+                enabled=True
+            )
+            session.add(child_chunk)
+
+            # 更新 chunk_dict 以便后续 embedding 使用
+            chunk_dict['id'] = str(child_chunk.id)
+
+        await session.commit()
+        logger.info(f"Saved {len(child_chunks)} child chunks to database: doc_id={doc_id}")
+        return len(child_chunks)
 
 
 async def _update_document_status(doc_id: str, status: str) -> None:

@@ -6,6 +6,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.document import Document, ParseTask
 from app.models.chunk import Chunk
 from app.models.tree_node import TreeNode, ElementPosition
+from app.models.child_chunk import ChildChunk
 from app.models.metadata import KbMetadataField
 from app.models.retrieval_testing import (
     RetrievalTestCase,
@@ -39,6 +40,7 @@ __all__ = [
     "Chunk",
     "TreeNode",
     "ElementPosition",
+    "ChildChunk",
     "KbMetadataField",
     "RetrievalTestCase",
     "RetrievalTestCaseResult",
