@@ -15,6 +15,7 @@ import type {
   RetrievalTestSet,
   ParentChunk,
   ChildChunk,
+  ChildChunkAsset,
 } from '@/types/knowledge'
 
 type Data = Record<string, unknown>
@@ -1342,6 +1343,37 @@ export function handleKnowledgeMock(
     const filters = parseJsonQuery(query, 'chunk_metadata')
     if (Object.keys(filters).length) rows = rows.filter((item) => metadataMatches(item.metadata, filters))
     return ok(paginate(rows.sort((a, b) => a.seq - b.seq), query))
+  }
+
+  if (path === '/child-chunks' && upperMethod === 'GET') {
+    // 从 mockParentChunks 展平生成子分段列表（父子分段模式）
+    const rows: ChildChunkAsset[] = []
+    for (const p of mockParentChunks) {
+      for (const c of p.children) {
+        rows.push({
+          id: c.id,
+          kb_id: String(query.kb_id || ''),
+          document_id: p.document_id,
+          document_name: p.document_name,
+          tree_node_id: p.id,
+          section_path: p.section_path || p.title,
+          position: c.position,
+          content: c.content,
+          char_count: c.content.length,
+          embedding_model: 'bge-m3',
+          metadata: {},
+          enabled: true,
+          created_at: '2026-08-20T09:00:00.000Z',
+        })
+      }
+    }
+    let filtered = rows
+    if (query.document_id) filtered = filtered.filter((item) => item.document_id === query.document_id)
+    if (query.keyword) filtered = filtered.filter((item) => item.content.includes(String(query.keyword)))
+    if (query.enabled) filtered = filtered.filter((item) => item.enabled === (query.enabled === 'true'))
+    if (query.vector_state === 'vectorized') filtered = filtered.filter((item) => item.embedding_model !== null)
+    if (query.vector_state === 'pending') filtered = filtered.filter((item) => item.embedding_model === null)
+    return ok(paginate(filtered.sort((a, b) => a.position - b.position), query))
   }
 
   match = path.match(/^\/documents\/batch-(metadata|status)$/)

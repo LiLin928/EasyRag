@@ -337,6 +337,38 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     }
   }
 
+  async function loadChildChunks(kbId: string, filter: Filter = {}): Promise<void> {
+    /**加载子分段（父子分段模式）并映射成 ChunkAsset 形状，复用分段表格/抽屉。*/
+    const requestEpoch = kbRequestEpoch
+    chunkLoading.value = true
+    chunkFilter.value = filter
+    try {
+      const result = await kbApi.getChildChunkList({ ...filter, kb_id: kbId })
+      if (!isKbResponseCurrent(kbId, requestEpoch)) return
+      chunkList.value = result.list.map((c) => ({
+        id: c.id,
+        kb_id: c.kb_id,
+        document_id: c.document_id,
+        document_name: c.document_name || '',
+        content: c.content,
+        content_search: null,
+        clause_title: `子分段 #${c.position}`,
+        section_path: c.section_path,
+        page_number: 0,
+        seq: c.position,
+        char_count: c.char_count,
+        embedding_model: c.embedding_model,
+        metadata: c.metadata,
+        enabled: c.enabled,
+        recall_count: 0,
+        created_at: c.created_at,
+      }))
+      chunkTotal.value = result.total
+    } finally {
+      if (requestEpoch === kbRequestEpoch) chunkLoading.value = false
+    }
+  }
+
   async function saveChunkMetadata(kbId: string, ids: string[], metadata: Filter): Promise<void> {
     const requestEpoch = kbRequestEpoch
     if (ids.length === 1) {
@@ -616,6 +648,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
     // 分段操作
     loadChunks,
+    loadChildChunks,
     saveChunkMetadata,
     setChunkEnabled,
     queueReembedding,

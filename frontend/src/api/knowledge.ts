@@ -1,6 +1,7 @@
 // 知识库 API
 import request from './request'
 import type {
+  ChildChunkAsset,
   ChunkAsset,
   DocElement,
   Document,
@@ -136,6 +137,12 @@ export function updateDocumentStatus(ids: string[], enabled: boolean): Promise<U
 
 export function getChunkList(params: Record<string, unknown>): Promise<ListResult<ChunkAsset>> {
   return request.get('/chunks', { params })
+}
+
+export function getChildChunkList(
+  params: Record<string, unknown>
+): Promise<ListResult<ChildChunkAsset>> {
+  return request.get('/child-chunks', { params })
 }
 
 export function updateChunkMetadata(

@@ -52,7 +52,7 @@ function fmtScore(v: number | null): string {
         <div class="info-section">
           <h4 class="section-label">章节信息</h4>
           <div class="title-row">
-            <el-tag :type="level === 1 ? 'primary' : 'success'" size="small">
+            <el-tag :type="parentChunk.level === 1 ? 'primary' : 'success'" size="small">
               {{ levelTag }}
             </el-tag>
             <span class="chapter-title">{{ parentChunk.title }}</span>

@@ -46,6 +46,11 @@ const filterableFields = computed<MetadataField[]>(() =>
 const documents = computed(() =>
   knowledgeStore.docList.filter((item) => !documentKeyword.value || item.name.includes(documentKeyword.value))
 )
+
+/** 当前知识库是否为父子分段模式（决定查 child_chunks 还是 chunks） */
+const isParentChild = computed<boolean>(
+  () => knowledgeStore.currentKb?.retrieval_mode === 'parent_child'
+)
 const selectedChunks = computed<ChunkAsset[]>(() =>
   knowledgeStore.chunkList.filter((item) => selectedIds.value.includes(item.id))
 )
@@ -104,6 +109,14 @@ watch(
   }
 )
 
+watch(
+  () => knowledgeStore.currentKb?.retrieval_mode,
+  () => {
+    if (!initialized.value) return
+    void load()
+  }
+)
+
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
 })
@@ -121,7 +134,11 @@ async function load(): Promise<void> {
     Object.entries(metadataFilters.value).filter(([, value]) => hasFilterValue(value))
   )
   if (Object.keys(metadata).length) filter.chunk_metadata = JSON.stringify(metadata)
-  await knowledgeStore.loadChunks(props.kbId, filter)
+  if (isParentChild.value) {
+    await knowledgeStore.loadChildChunks(props.kbId, filter)
+  } else {
+    await knowledgeStore.loadChunks(props.kbId, filter)
+  }
 }
 
 function handlePageChange(nextPage: number): void {

@@ -107,6 +107,23 @@ export interface ChunkAsset {
   created_at: string
 }
 
+/** 子分段（父子分段模式下列表查询用，对应后端 child_chunk_output） */
+export interface ChildChunkAsset {
+  id: string
+  kb_id: string
+  document_id: string
+  document_name: string | null
+  tree_node_id: string
+  section_path: string | null
+  position: number
+  content: string
+  char_count: number
+  embedding_model: string | null
+  metadata: Record<string, unknown>
+  enabled: boolean
+  created_at: string
+}
+
 export interface ConfigSource {
   value: string | number | boolean
   source: 'override' | 'knowledge_base' | 'scene' | 'system_default'
