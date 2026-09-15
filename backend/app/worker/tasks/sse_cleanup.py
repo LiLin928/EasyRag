@@ -2,27 +2,15 @@
 
 定时清理过期的 SSE 连接，防止资源泄漏。
 """
-import asyncio
 import logging
 
 from celery import shared_task
 
 from app.sse.manager import get_sse_manager
+from app.worker.loop import get_worker_event_loop as _get_event_loop
 
 
 logger = logging.getLogger(__name__)
-
-# 持久事件循环
-_event_loop = None
-
-
-def _get_event_loop():
-    """获取或创建持久事件循环"""
-    global _event_loop
-    if _event_loop is None or _event_loop.is_closed():
-        _event_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_event_loop)
-    return _event_loop
 
 
 @shared_task(name="sse.cleanup_expired")

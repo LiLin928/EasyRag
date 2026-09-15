@@ -16,15 +16,17 @@ from app.core.parser.chunker import Chunker
 from app.core.parser.embedder import Embedder
 from app.providers.storage.factory import get_storage
 from app.db.session import async_session  # 添加异步 session 导入
+from app.worker.loop import get_worker_event_loop as _get_event_loop
 
 logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    """运行异步协程
+    """在 worker 持久事件循环上运行异步协程。
 
-    使用 asyncio.run() 确保每个任务有独立的事件循环，
-    避免 asyncpg "another operation is in progress" 错误。
+    复用进程级持久循环，避免 asyncio.run() 每次新建并关闭循环导致
+    全局 engine 连接池的 asyncpg 连接绑定到已关闭循环
+    （asyncpg "attached to a different loop"）。
 
     Args:
         coro: 异步协程对象
@@ -32,11 +34,11 @@ def _run_async(coro):
     Returns:
         协程的返回值
     """
-    # Windows 环境：设置正确的事件循环策略
+    # Windows 环境：设置正确的事件循环策略（持久循环创建时已应用）
     if sys.platform == 'win32':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    return asyncio.run(coro)
+    return _get_event_loop().run_until_complete(coro)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
