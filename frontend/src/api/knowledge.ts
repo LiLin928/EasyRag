@@ -145,6 +145,27 @@ export function getChildChunkList(
   return request.get('/child-chunks', { params })
 }
 
+export function updateChildChunkMetadata(
+  id: string,
+  metadata: Record<string, unknown>
+): Promise<ChildChunkAsset> {
+  return request.patch(`/child-chunks/${id}/metadata`, { metadata })
+}
+
+export function batchUpdateChildChunkMetadata(
+  ids: string[],
+  metadata: Record<string, unknown>
+): Promise<UpdatedResult> {
+  return request.post('/child-chunks/batch-metadata', { ids, metadata })
+}
+
+export function updateChildChunkStatus(
+  ids: string[],
+  enabled: boolean
+): Promise<UpdatedResult> {
+  return request.post('/child-chunks/batch-status', { ids, enabled })
+}
+
 export function updateChunkMetadata(
   id: string,
   metadata: Record<string, unknown>

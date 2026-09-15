@@ -314,6 +314,39 @@ async def list_child_chunks(
     )
 
 
+@router.patch("/child-chunks/{child_id}/metadata")
+async def update_child_chunk_metadata(
+    child_id: str, body: MetadataUpdate, me=Depends(get_current_user)
+):
+    """更新单个子分段的元数据（父子分段模式）。"""
+    child = await asset_service.update_child_chunk_metadata(
+        child_id, me.id, body.metadata
+    )
+    return ok(asset_service.child_chunk_output(child))
+
+
+@router.post("/child-chunks/batch-metadata")
+async def batch_child_chunk_metadata(
+    body: BatchMetadata, me=Depends(get_current_user)
+):
+    """批量更新子分段元数据（父子分段模式）。"""
+    updated = await asset_service.batch_update_metadata(
+        body.ids, me.id, "child_chunk", body.metadata
+    )
+    return ok({"updated": updated})
+
+
+@router.post("/child-chunks/batch-status")
+async def batch_child_chunk_status(
+    body: BatchStatus, me=Depends(get_current_user)
+):
+    """批量启用/停用子分段（父子分段模式）。"""
+    updated = await asset_service.batch_update_status(
+        body.ids, me.id, "child_chunk", body.enabled
+    )
+    return ok({"updated": updated})
+
+
 @router.post("/chunks/reembed")
 async def reembed_chunks(body: ReembedRequest, me=Depends(get_current_user)):
     kb_uuid = _validate_uuid(body.kb_id, "知识库 ID")

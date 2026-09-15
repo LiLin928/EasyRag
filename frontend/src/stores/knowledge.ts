@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import * as kbApi from '@/api/knowledge'
 import type {
   ChunkAsset,
+  ChildChunkAsset,
   DocElement,
   Document,
   KnowledgeBase,
@@ -24,6 +25,28 @@ import type {
 
 type KnowledgeTab = 'documents' | 'segments' | 'metadata' | 'testing' | 'settings'
 type Filter = Record<string, unknown>
+
+/**把子分段映射成 ChunkAsset 形状，使分段表格/抽屉在父子模式下可复用。*/
+function mapChildChunkToAsset(c: ChildChunkAsset): ChunkAsset {
+  return {
+    id: c.id,
+    kb_id: c.kb_id,
+    document_id: c.document_id,
+    document_name: c.document_name || '',
+    content: c.content,
+    content_search: null,
+    clause_title: `子分段 #${c.position}`,
+    section_path: c.section_path,
+    page_number: 0,
+    seq: c.position,
+    char_count: c.char_count,
+    embedding_model: c.embedding_model,
+    metadata: c.metadata,
+    enabled: c.enabled,
+    recall_count: 0,
+    created_at: c.created_at,
+  }
+}
 
 export const useKnowledgeStore = defineStore('knowledge', () => {
   // ========== 知识库状态 ==========
@@ -345,24 +368,7 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
     try {
       const result = await kbApi.getChildChunkList({ ...filter, kb_id: kbId })
       if (!isKbResponseCurrent(kbId, requestEpoch)) return
-      chunkList.value = result.list.map((c) => ({
-        id: c.id,
-        kb_id: c.kb_id,
-        document_id: c.document_id,
-        document_name: c.document_name || '',
-        content: c.content,
-        content_search: null,
-        clause_title: `子分段 #${c.position}`,
-        section_path: c.section_path,
-        page_number: 0,
-        seq: c.position,
-        char_count: c.char_count,
-        embedding_model: c.embedding_model,
-        metadata: c.metadata,
-        enabled: c.enabled,
-        recall_count: 0,
-        created_at: c.created_at,
-      }))
+      chunkList.value = result.list.map(mapChildChunkToAsset)
       chunkTotal.value = result.total
     } finally {
       if (requestEpoch === kbRequestEpoch) chunkLoading.value = false
@@ -371,14 +377,22 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   async function saveChunkMetadata(kbId: string, ids: string[], metadata: Filter): Promise<void> {
     const requestEpoch = kbRequestEpoch
+    const parentChild = currentKb.value?.retrieval_mode === 'parent_child'
     if (ids.length === 1) {
-      const chunk = await kbApi.updateChunkMetadata(ids[0], metadata)
+      // 父子模式写 child_chunks 表，传统模式写 chunks 表；二表主键不互通
+      const chunk = parentChild
+        ? mapChildChunkToAsset(await kbApi.updateChildChunkMetadata(ids[0], metadata))
+        : await kbApi.updateChunkMetadata(ids[0], metadata)
       if (!isKbResponseCurrent(kbId, requestEpoch)) return
       const index = chunkList.value.findIndex((item) => item.id === chunk.id)
       if (index > -1) chunkList.value[index] = chunk
       return
     }
-    await kbApi.batchUpdateChunkMetadata(ids, metadata)
+    if (parentChild) {
+      await kbApi.batchUpdateChildChunkMetadata(ids, metadata)
+    } else {
+      await kbApi.batchUpdateChunkMetadata(ids, metadata)
+    }
     if (!isKbResponseCurrent(kbId, requestEpoch)) return
     chunkList.value = chunkList.value.map((item) =>
       ids.includes(item.id) ? { ...item, metadata: { ...item.metadata, ...metadata } } : item
@@ -387,7 +401,12 @@ export const useKnowledgeStore = defineStore('knowledge', () => {
 
   async function setChunkEnabled(kbId: string, ids: string[], enabled: boolean): Promise<void> {
     const requestEpoch = kbRequestEpoch
-    await kbApi.updateChunkStatus(ids, enabled)
+    const parentChild = currentKb.value?.retrieval_mode === 'parent_child'
+    if (parentChild) {
+      await kbApi.updateChildChunkStatus(ids, enabled)
+    } else {
+      await kbApi.updateChunkStatus(ids, enabled)
+    }
     if (!isKbResponseCurrent(kbId, requestEpoch)) return
     chunkList.value = chunkList.value.map((item) =>
       ids.includes(item.id) ? { ...item, enabled } : item

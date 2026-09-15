@@ -17,7 +17,7 @@ from app.services import metadata_service
 from app.services.metadata_service import validate_metadata
 
 
-_SCOPES = {"document", "chunk"}
+_SCOPES = {"document", "chunk", "child_chunk"}
 _SORTS = {
     "created_desc",
     "created_asc",
@@ -45,7 +45,7 @@ def _uuid(value, label: str) -> uuid.UUID:
 
 def _validate_scope(scope: str) -> None:
     if scope not in _SCOPES:
-        raise BizException(ErrorCode.PARAM_ERROR, "资产作用域必须是 document 或 chunk")
+        raise BizException(ErrorCode.PARAM_ERROR, "资产作用域必须是 document / chunk / child_chunk")
 
 
 def _validate_enabled(enabled: bool) -> None:
@@ -432,6 +432,28 @@ async def update_chunk_metadata(chunk_id, user_id, metadata) -> Chunk:
         return chunk
 
 
+async def update_child_chunk_metadata(child_id, user_id, metadata) -> ChildChunk:
+    """更新单个子分段的元数据。
+
+    子分段复用 chunk 级元数据字段定义（scope="chunk"）。
+    """
+    user_uuid = _uuid(user_id, "用户 ID")
+    async with async_session() as session:
+        child = await _child_chunk_from(session, child_id, user_uuid, for_update=True)
+        clean = await _clean_metadata(
+            session,
+            child.kb_id,
+            user_uuid,
+            "chunk",
+            metadata,
+            require_complete=True,
+        )
+        child.metadata_ = clean
+        await session.commit()
+        await session.refresh(child)
+        return child
+
+
 async def _owned_assets(session, model, ids, user_id, scope: str):
     id_values = [_uuid(value, "资产 ID") for value in ids]
     if scope == "document":
@@ -440,6 +462,15 @@ async def _owned_assets(session, model, ids, user_id, scope: str):
             .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
             .where(Document.id.in_(id_values), KnowledgeBase.user_id == user_id)
             .with_for_update(of=Document)
+        )
+    elif scope == "child_chunk":
+        # 父子分段的检索单元在 child_chunks 表，主键与 chunks 表不互通
+        query = (
+            select(ChildChunk, KnowledgeBase)
+            .join(Document, ChildChunk.document_id == Document.id)
+            .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
+            .where(ChildChunk.id.in_(id_values), KnowledgeBase.user_id == user_id)
+            .with_for_update(of=ChildChunk)
         )
     else:
         query = (
@@ -455,6 +486,8 @@ async def _owned_assets(session, model, ids, user_id, scope: str):
 async def batch_update_metadata(ids, user_id, scope, metadata) -> int:
     _validate_scope(scope)
     user_uuid = _uuid(user_id, "用户 ID")
+    # 子分段复用 chunk 级元数据字段定义，故字段校验 scope 用 "chunk"
+    field_scope = "chunk" if scope == "child_chunk" else scope
     async with async_session() as session:
         rows = await _owned_assets(session, scope, ids, user_uuid, scope)
         if not rows:
@@ -468,7 +501,7 @@ async def batch_update_metadata(ids, user_id, scope, metadata) -> int:
                 session,
                 kb_id,
                 user_uuid,
-                scope,
+                field_scope,
                 metadata,
                 require_complete=False,
             )
@@ -634,3 +667,33 @@ async def _chunk_from(
         raise BizException(ErrorCode.FORBIDDEN, "无权访问该分块")
     chunk._document_name = document_name
     return chunk
+
+
+async def _child_chunk_from(
+    session: AsyncSession, child_id, user_id, *, for_update=False
+) -> ChildChunk:
+    """按 ID 取子分段并鉴权（属主校验通过所属知识库）。
+
+    同时挂载 _document_name 与 _section_path，使单条更新接口的返回
+    与 list_child_chunks 输出形状一致。
+    """
+    child_uuid = _uuid(child_id, "子分段 ID")
+    user_uuid = _uuid(user_id, "用户 ID")
+    query = (
+        select(ChildChunk, Document.name, TreeNode.title, KnowledgeBase.user_id)
+        .join(Document, ChildChunk.document_id == Document.id)
+        .join(KnowledgeBase, Document.kb_id == KnowledgeBase.id)
+        .outerjoin(TreeNode, ChildChunk.tree_node_id == TreeNode.id)
+        .where(ChildChunk.id == child_uuid)
+    )
+    if for_update:
+        query = query.with_for_update(of=ChildChunk)
+    row = (await session.execute(query)).first()
+    if row is None:
+        raise BizException(ErrorCode.NOT_FOUND, "子分段不存在")
+    child, document_name, node_title, owner_id = row
+    if owner_id != user_uuid:
+        raise BizException(ErrorCode.FORBIDDEN, "无权访问该子分段")
+    child._document_name = document_name
+    child._section_path = node_title
+    return child
