@@ -29,7 +29,7 @@ def test_resolve_retrieval_mode_default_traditional():
 
 
 def test_normalize_parent_child_candidates_maps_score_to_vector_score():
-    """父子检索结果用 score 字段，需映射为候选的 vector_score。"""
+    """父子检索结果用 score 字段，需映射为候选的 vector_score，同时保留 score 字段。"""
     pc_results = [
         {
             "id": "node-1",
@@ -54,7 +54,8 @@ def test_normalize_parent_child_candidates_maps_score_to_vector_score():
     assert c["document_name"] == "doc.pdf"
     assert c["section_path"] == "第一章"
     assert c["content"] == "父分段完整内容"
-    assert c["vector_score"] == 0.82
+    assert c["vector_score"] == 0.82  # 用于指标计算
+    assert c["score"] == 0.82  # 用于前端显示
     assert c["metadata"] == {}
     # 父分段特有字段
     assert c["title"] == "第一章"

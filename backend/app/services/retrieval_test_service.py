@@ -862,6 +862,7 @@ def _normalize_parent_child_candidates(results: list[dict]) -> list[dict]:
     `vector_score`；此处做字段映射，便于复用 _apply_case_metrics 与结果展示。
 
     注意：保留所有父分段字段（title/level/children等），供前端详情页显示。
+    同时提供 score 和 vector_score 字段，保持与前端 ParentChunk 类型一致。
     """
     candidates = []
     for rank, r in enumerate(results, start=1):
@@ -877,7 +878,8 @@ def _normalize_parent_child_candidates(results: list[dict]) -> list[dict]:
                 "page_number": None,
                 "char_count": r.get("char_count"),
                 "content": r.get("content"),
-                "vector_score": r.get("score"),
+                "vector_score": r.get("score"),  # 用于指标计算
+                "score": r.get("score"),  # 用于前端显示（ParentChunk 类型）
                 "metadata": r.get("metadata") or {},
                 # 父分段特有字段
                 "parent_chunk_mode": r.get("parent_chunk_mode"),
