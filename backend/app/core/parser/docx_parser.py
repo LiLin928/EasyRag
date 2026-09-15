@@ -83,6 +83,11 @@ class DOCXParser(BaseParser):
         # 判断元素类型
         element_type = self._determine_element_type(para)
 
+        # 提取标题层级（如果是标题）
+        level = 0
+        if element_type == 'heading':
+            level = self._extract_heading_level(para)
+
         return DocumentElement(
             element_id=f'{doc_id}-elem-{elem_idx}',
             element_type=element_type,
@@ -92,6 +97,7 @@ class DOCXParser(BaseParser):
                 'style': para.style.name if para.style else '',
                 'alignment': str(para.alignment) if para.alignment else '',
                 'is_heading': element_type == 'heading',
+                'level': level,  # ← 添加标题层级
             }
         )
 
@@ -127,6 +133,69 @@ class DOCXParser(BaseParser):
             return 'heading'
 
         return 'paragraph'
+
+    def _extract_heading_level(self, para) -> int:
+        """提取标题层级
+
+        优先级：
+        1. 样式名称（Heading 1/标题 1）
+        2. 内容编号（第一章、1.1.1）
+
+        Args:
+            para: 段落对象
+
+        Returns:
+            标题层级（1-6），如果不是标题返回 0
+        """
+        import re
+
+        style_name = para.style.name if para.style else ''
+        text = para.text.strip()
+
+        # 1. 从样式名称提取层级
+        # 英文样式：Heading 1, Heading 2, ...
+        match = re.search(r'Heading\s+(\d+)', style_name, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+
+        # 中文样式：标题 1, 标题 2, ...
+        match = re.search(r'标题\s*(\d+)', style_name)
+        if match:
+            return int(match.group(1))
+
+        # 其他编号样式（Title 通常是一级标题）
+        if 'Title' in style_name or style_name == '标题':
+            return 1
+
+        # 2. 从内容编号推断层级（注意顺序：先匹配更具体的模式）
+        # 数字编号：1.1.1 1.1.2（三级）
+        if re.match(r'^\d+\.\d+\.\d+', text):
+            return 3
+
+        # 数字编号：1.1 1.2（二级）
+        if re.match(r'^\d+\.\d+', text):
+            return 2
+
+        # 数字编号：1. 2. 3.（一级）
+        if re.match(r'^\d+[\.、\s]', text):
+            # 排除列表项
+            if len(text) <= 50 and not re.search(r'[；。，]$', text):
+                return 1
+
+        # 第一章、第二章（一级）
+        if re.match(r'^第[一二三四五六七八九十百]+[章节条款部分]', text):
+            return 1
+
+        # 一、二、三、（一级）
+        if re.match(r'^[一二三四五六七八九十百]+、', text):
+            return 1
+
+        # （一）、（二）、（三）（二级）
+        if re.match(r'^（[一二三四五六七八九十百]+）', text):
+            return 2
+
+        # 默认：无法识别层级，返回 1
+        return 1
 
     def _is_heading_by_content(self, text: str) -> bool:
         """基于内容判断是否为标题
