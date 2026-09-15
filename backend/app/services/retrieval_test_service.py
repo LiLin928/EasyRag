@@ -860,6 +860,8 @@ def _normalize_parent_child_candidates(results: list[dict]) -> list[dict]:
 
     parent_child_search 返回的父分段用 `score` 字段，而候选表/前端期望
     `vector_score`；此处做字段映射，便于复用 _apply_case_metrics 与结果展示。
+
+    注意：保留所有父分段字段（title/level/children等），供前端详情页显示。
     """
     candidates = []
     for rank, r in enumerate(results, start=1):
@@ -869,12 +871,18 @@ def _normalize_parent_child_candidates(results: list[dict]) -> list[dict]:
                 "chunk_id": r.get("id"),
                 "document_id": r.get("document_id"),
                 "document_name": r.get("document_name"),
+                "title": r.get("title"),
+                "level": r.get("level"),
                 "section_path": r.get("section_path") or r.get("title"),
                 "page_number": None,
-                "char_count": None,
+                "char_count": r.get("char_count"),
                 "content": r.get("content"),
                 "vector_score": r.get("score"),
                 "metadata": r.get("metadata") or {},
+                # 父分段特有字段
+                "parent_chunk_mode": r.get("parent_chunk_mode"),
+                "child_chunk_count": r.get("child_chunk_count"),
+                "children": r.get("children", []),
             }
         )
     return candidates

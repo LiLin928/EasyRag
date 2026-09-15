@@ -36,9 +36,12 @@ def test_normalize_parent_child_candidates_maps_score_to_vector_score():
             "document_id": "doc-1",
             "document_name": "doc.pdf",
             "title": "第一章",
+            "level": 1,
             "content": "父分段完整内容",
             "score": 0.82,
             "section_path": "第一章",
+            "parent_chunk_mode": "paragraph",
+            "child_chunk_count": 3,
             "children": [{"id": "c1", "position": 1, "content": "子分段", "score": 0.82}],
         },
     ]
@@ -53,6 +56,12 @@ def test_normalize_parent_child_candidates_maps_score_to_vector_score():
     assert c["content"] == "父分段完整内容"
     assert c["vector_score"] == 0.82
     assert c["metadata"] == {}
+    # 父分段特有字段
+    assert c["title"] == "第一章"
+    assert c["level"] == 1
+    assert c["parent_chunk_mode"] == "paragraph"
+    assert c["child_chunk_count"] == 3
+    assert c["children"] == [{"id": "c1", "position": 1, "content": "子分段", "score": 0.82}]
 
 
 def test_normalize_parent_child_candidates_empty():
