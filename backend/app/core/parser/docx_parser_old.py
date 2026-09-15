@@ -1,20 +1,9 @@
-"""DOCX 解析器实现（增强版）
-
-功能：
-- 段落提取
-- 标题识别（层级）
-- 列表处理
-- 表格提取（新增）
-- 智能段落合并（可选）
-"""
+"""DOCX 解析器实现"""
 
 import logging
 from typing import List
 from docx import Document
-from docx.table import Table
-from docx.text.paragraph import Paragraph
 import io
-import re
 
 from .base import (
     BaseParser,
@@ -31,10 +20,8 @@ class DOCXParser(BaseParser):
 
     使用 python-docx 提取内容，支持：
     - 段落提取
-    - 标题识别（层级）
+    - 标题识别
     - 列表处理
-    - 表格提取
-    - 智能段落合并（可选）
     """
 
     async def parse(self, file_data: bytes, doc_id: str) -> ParsedDocument:
@@ -53,44 +40,22 @@ class DOCXParser(BaseParser):
         # 1. 打开文档
         doc = Document(io.BytesIO(file_data))
 
-        # 2. 提取元素（使用迭代方式处理段落和表格）
+        # 2. 提取元素
         elements: List[DocumentElement] = []
         elem_idx = 0
 
-        # 使用 iter_inner_content() 按顺序遍历所有内容
-        # 注意：python-docx 没有这个方法，需要手动处理
-        # 方案：遍历 document.element.body，按顺序处理段落和表格
+        for para in doc.paragraphs:
+            if not para.text.strip():
+                continue
 
-        # 获取 body 元素
-        body = doc.element.body
-
-        # 遍历 body 中的所有子元素
-        for child in body:
-            # 判断是段落还是表格
-            if child.tag.endswith('}p'):  # 段落
-                # 通过 child 找到对应的 Paragraph 对象
-                para = Paragraph(child, doc)
-                if not para.text.strip():
-                    continue
-
-                element = self._create_paragraph_element(para, elem_idx, doc_id)
-                elements.append(element)
-                elem_idx += 1
-
-            elif child.tag.endswith('}tbl'):  # 表格
-                # 通过 child 找到对应的 Table 对象
-                table = Table(child, doc)
-
-                element = self._create_table_element(table, elem_idx, doc_id)
-                if element:  # 表格可能为空
-                    elements.append(element)
-                    elem_idx += 1
+            element = self._create_paragraph_element(para, elem_idx, doc_id)
+            elements.append(element)
+            elem_idx += 1
 
         # 3. 提取元数据
         metadata = self._extract_metadata(file_data)
         metadata.update({
             'paragraph_count': len(doc.paragraphs),
-            'table_count': len(doc.tables),
             'core_properties': {
                 'author': doc.core_properties.author or '',
                 'title': doc.core_properties.title or '',
@@ -110,7 +75,7 @@ class DOCXParser(BaseParser):
 
     def _create_paragraph_element(
         self,
-        para: Paragraph,
+        para,
         elem_idx: int,
         doc_id: str
     ) -> DocumentElement:
@@ -132,69 +97,11 @@ class DOCXParser(BaseParser):
                 'style': para.style.name if para.style else '',
                 'alignment': str(para.alignment) if para.alignment else '',
                 'is_heading': element_type == 'heading',
-                'level': level,
+                'level': level,  # ← 添加标题层级
             }
         )
 
-    def _create_table_element(
-        self,
-        table: Table,
-        elem_idx: int,
-        doc_id: str
-    ) -> DocumentElement:
-        """创建表格元素
-
-        将表格转换为 HTML 格式，保留结构信息。
-        """
-        rows = []
-        for row in table.rows:
-            cells = []
-            for cell in row.cells:
-                # 获取单元格文本（合并单元格会重复）
-                cell_text = cell.text.strip()
-                cells.append(cell_text)
-            rows.append(cells)
-
-        if not rows:
-            return None
-
-        # 转换为 HTML 格式
-        html_parts = ['<table border="1" style="border-collapse: collapse;">']
-        for i, row in enumerate(rows):
-            html_parts.append('<tr>')
-            for cell in row:
-                # 第一行作为表头
-                tag = 'th' if i == 0 else 'td'
-                html_parts.append(f'<{tag} style="padding: 5px; border: 1px solid #ddd;">{cell}</{tag}>')
-            html_parts.append('</tr>')
-        html_parts.append('</table>')
-
-        html_content = '\n'.join(html_parts)
-
-        # 同时创建纯文本版本（用于检索）
-        text_parts = []
-        for i, row in enumerate(rows):
-            if i == 0:  # 表头
-                text_parts.append(' | '.join(row))
-                text_parts.append('-' * 50)
-            else:
-                text_parts.append(' | '.join(row))
-
-        text_content = '\n'.join(text_parts)
-
-        return DocumentElement(
-            element_id=f'{doc_id}-elem-{elem_idx}',
-            element_type='table',
-            content=text_content,  # 纯文本用于检索
-            position=ElementPosition(),
-            metadata={
-                'html': html_content,  # HTML 用于展示
-                'rows': len(rows),
-                'cols': len(rows[0]) if rows else 0,
-            }
-        )
-
-    def _determine_element_type(self, para: Paragraph) -> str:
+    def _determine_element_type(self, para) -> str:
         """判断段落类型
 
         增强标题识别，支持：
@@ -227,7 +134,7 @@ class DOCXParser(BaseParser):
 
         return 'paragraph'
 
-    def _extract_heading_level(self, para: Paragraph) -> int:
+    def _extract_heading_level(self, para) -> int:
         """提取标题层级
 
         优先级：
@@ -240,6 +147,8 @@ class DOCXParser(BaseParser):
         Returns:
             标题层级（1-6），如果不是标题返回 0
         """
+        import re
+
         style_name = para.style.name if para.style else ''
         text = para.text.strip()
 
@@ -303,6 +212,8 @@ class DOCXParser(BaseParser):
         Returns:
             是否为标题
         """
+        import re
+
         if not text or len(text) > 100:
             return False
 
