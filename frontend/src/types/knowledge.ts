@@ -25,6 +25,12 @@ export interface KnowledgeBase {
   chunk_count: number
   last_test_at: string | null
   created_at: string
+  /** 检索模式：traditional(传统单层) / parent_child(父子分段) */
+  retrieval_mode: RetrievalMode
+  /** 父子分段模式下子分段目标大小（字符数） */
+  child_chunk_size: number
+  /** 父子分段模式下子分段重叠字符数 */
+  child_chunk_overlap: number
 
   // Temporary aliases for the legacy knowledge page; remove in Task 10.
   desc: string

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import UploadPanel from './UploadPanel.vue'
@@ -16,6 +16,7 @@ interface Props {
 const props = defineProps<Props>()
 
 const router = useRouter()
+const route = useRoute()
 const knowledgeStore = useKnowledgeStore()
 
 type StatusFilter = 'all' | DocumentAsset['status']
@@ -202,6 +203,14 @@ function view(doc: DocumentAsset): void {
   router.push(`/knowledge/${props.kbId}/docs/${doc.id}`)
 }
 
+function viewSegments(doc: DocumentAsset): void {
+  // 切到分段 tab 并定位到该文档
+  knowledgeStore.activeTab = 'segments'
+  void router.replace({
+    query: { ...route.query, tab: 'segments', document_id: doc.id }
+  })
+}
+
 async function refreshAfterUpload(): Promise<void> {
   await knowledgeStore.loadKbDetail(props.kbId)
   await load()
@@ -339,6 +348,7 @@ async function handleRefresh(): Promise<void> {
         :selected-ids="selectedIds"
         @selection-change="selectedIds = $event"
         @view="view"
+        @segments="viewSegments"
         @metadata="openEditor([$event])"
         @rebuild="rebuild"
         @toggle="handleToggle"

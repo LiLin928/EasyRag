@@ -18,6 +18,7 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   'selection-change': [ids: string[]]
   view: [document: DocumentAsset]
+  segments: [document: DocumentAsset]
   metadata: [document: DocumentAsset]
   rebuild: [document: DocumentAsset]
   toggle: [document: DocumentAsset, enabled: boolean]
@@ -134,10 +135,13 @@ function handleSelection(rows: DocumentAsset[]): void {
       </template>
     </el-table-column>
     <el-table-column prop="created_at" label="上传时间" width="160" show-overflow-tooltip />
-    <el-table-column label="操作" width="205" fixed="right" align="center">
+    <el-table-column label="操作" width="240" fixed="right" align="center">
       <template #default="{ row }">
         <el-tooltip content="详情" placement="top">
           <el-button icon="View" circle text type="primary" @click="emit('view', row as DocumentAsset)" />
+        </el-tooltip>
+        <el-tooltip content="查看分段" placement="top">
+          <el-button icon="Files" circle text type="primary" @click="emit('segments', row as DocumentAsset)" />
         </el-tooltip>
         <el-tooltip content="元数据" placement="top">
           <el-button icon="Edit" circle text type="primary" @click="emit('metadata', row as DocumentAsset)" />

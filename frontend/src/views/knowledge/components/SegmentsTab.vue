@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import MetadataEditor from './MetadataEditor.vue'
@@ -10,6 +11,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const route = useRoute()
 const knowledgeStore = useKnowledgeStore()
 
 type VectorFilter = 'all' | 'vectorized' | 'pending'
@@ -83,8 +85,24 @@ watch(() => props.kbId, () => {
 
 onMounted(() => {
   initialized.value = true
+  // 支持从文档列表"查看分段"跳转：按 document_id query 定位文档
+  const queryDocId = route.query.document_id
+  if (typeof queryDocId === 'string' && queryDocId) {
+    selectedDocumentId.value = queryDocId
+  }
   void load()
 })
+
+watch(
+  () => route.query.document_id,
+  (value) => {
+    if (!initialized.value) return
+    const next = typeof value === 'string' ? value : ''
+    if (next !== selectedDocumentId.value) {
+      selectedDocumentId.value = next
+    }
+  }
+)
 
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)

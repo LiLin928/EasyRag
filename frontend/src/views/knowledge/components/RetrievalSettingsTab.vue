@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import * as settingsApi from '@/api/settings'
-import type { RetrievalSettingsPayload } from '@/types/knowledge'
+import type { RetrievalSettingsPayload, RetrievalMode } from '@/types/knowledge'
 import type { ModelDef } from '@/types/settings'
 
 function debounce<T extends (...args: any[]) => any>(fn: T, delay: number): (...args: Parameters<T>) => void {
@@ -132,6 +132,14 @@ const numericFields: NumericField[] = [
 watch(() => props.kbId, () => {
   void load()
 })
+
+watch(
+  () => knowledgeStore.currentKb,
+  () => {
+    syncChunkMode()
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   void load()
@@ -353,6 +361,37 @@ async function rebuildAll(skipConfirm = false): Promise<void> {
     ElMessage.success('向量重建任务已排队')
   } finally {
     rebuilding.value = false
+  }
+}
+
+// ========== 分段模式（KB 级 retrieval_mode，方案§9） ==========
+const chunkMode = ref<RetrievalMode>('traditional')
+const childChunkSize = ref(200)
+const childChunkOverlap = ref(50)
+const chunkModeSaving = ref(false)
+
+function syncChunkMode(): void {
+  const kb = knowledgeStore.currentKb
+  if (kb) {
+    chunkMode.value = kb.retrieval_mode
+    childChunkSize.value = kb.child_chunk_size
+    childChunkOverlap.value = kb.child_chunk_overlap
+  }
+}
+
+async function applyChunkMode(): Promise<void> {
+  chunkModeSaving.value = true
+  try {
+    await knowledgeStore.updateKb(props.kbId, {
+      retrieval_mode: chunkMode.value,
+      child_chunk_size: childChunkSize.value,
+      child_chunk_overlap: childChunkOverlap.value,
+    })
+    ElMessage.success('分段模式已保存，重新解析文档后生效')
+  } catch {
+    ElMessage.error('保存分段模式失败')
+  } finally {
+    chunkModeSaving.value = false
   }
 }
 
@@ -579,6 +618,67 @@ function openKbForm(): void {
         </el-form>
       </section>
 
+      <section class="setting-panel chunk-mode-panel">
+        <h3>分段模式</h3>
+        <el-form label-position="top">
+          <el-form-item>
+            <template #label>
+              <span class="field-label">
+                检索分段模式
+                <el-tag size="small" type="info">知识库</el-tag>
+              </span>
+            </template>
+            <el-radio-group v-model="chunkMode">
+              <el-radio-button value="traditional">传统单层</el-radio-button>
+              <el-radio-button value="parent_child">父子分段</el-radio-button>
+            </el-radio-group>
+            <div class="method-description">
+              {{
+                chunkMode === 'parent_child'
+                  ? '父子分段：章节作为父分段保留完整上下文，内容切分为细粒度子分段用于精确召回'
+                  : '传统单层：按固定长度分块，单层向量检索'
+              }}
+            </div>
+          </el-form-item>
+          <template v-if="chunkMode === 'parent_child'">
+            <div class="field-grid">
+              <el-form-item>
+                <template #label>
+                  <span class="field-label">子分段大小</span>
+                </template>
+                <el-input-number
+                  v-model="childChunkSize"
+                  :min="50"
+                  :max="2000"
+                  :step="50"
+                  :precision="0"
+                  class="full-width"
+                />
+              </el-form-item>
+              <el-form-item>
+                <template #label>
+                  <span class="field-label">子分段重叠</span>
+                </template>
+                <el-input-number
+                  v-model="childChunkOverlap"
+                  :min="0"
+                  :max="500"
+                  :step="10"
+                  :precision="0"
+                  class="full-width"
+                />
+              </el-form-item>
+            </div>
+          </template>
+          <el-form-item>
+            <el-button type="primary" :loading="chunkModeSaving" @click="applyChunkMode">
+              应用分段模式
+            </el-button>
+            <span class="form-hint">切换后需重新解析文档才生效</span>
+          </el-form-item>
+        </el-form>
+      </section>
+
       <section class="setting-panel risk-panel">
         <h3>风险操作</h3>
         <div class="risk-actions">
@@ -649,6 +749,16 @@ function openKbForm(): void {
 
 .risk-panel {
   grid-column: 1 / -1;
+}
+
+.chunk-mode-panel {
+  grid-column: 1 / -1;
+}
+
+.form-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .risk-actions {

@@ -126,6 +126,9 @@ export const mockKbs: KnowledgeBase[] = [
     chunk_count: 9,
     last_test_at: '2026-08-20T09:30:00.000Z',
     created_at: '2026-07-15T10:30:00.000Z',
+    retrieval_mode: 'parent_child',
+    child_chunk_size: 200,
+    child_chunk_overlap: 50,
   }),
   withKbAliases({
     id: 'kb2',
@@ -139,6 +142,9 @@ export const mockKbs: KnowledgeBase[] = [
     chunk_count: 0,
     last_test_at: null,
     created_at: '2026-07-18T14:20:00.000Z',
+    retrieval_mode: 'traditional',
+    child_chunk_size: 200,
+    child_chunk_overlap: 50,
   }),
   withKbAliases({
     id: 'kb3',
@@ -152,6 +158,9 @@ export const mockKbs: KnowledgeBase[] = [
     chunk_count: 0,
     last_test_at: null,
     created_at: '2026-07-20T09:15:00.000Z',
+    retrieval_mode: 'traditional',
+    child_chunk_size: 200,
+    child_chunk_overlap: 50,
   }),
 ]
 
@@ -1419,6 +1428,9 @@ export function handleKnowledgeMock(
       chunk_count: 0,
       last_test_at: null,
       created_at: nextTime(),
+      retrieval_mode: data.retrieval_mode === 'parent_child' ? 'parent_child' : 'traditional',
+      child_chunk_size: numberValue(data.child_chunk_size, 200),
+      child_chunk_overlap: numberValue(data.child_chunk_overlap, 50),
     }
     mockKbs.push(withKbAliases(created))
     return ok(withKbAliases(created))
@@ -1435,6 +1447,11 @@ export function handleKnowledgeMock(
       if ('desc' in data && !('description' in data)) kb.description = optionalText(data.desc)
       if (typeof data.scene === 'string') kb.scene = data.scene
       if ('cover' in data) kb.cover = optionalText(data.cover)
+      if (data.retrieval_mode === 'traditional' || data.retrieval_mode === 'parent_child') {
+        kb.retrieval_mode = data.retrieval_mode
+      }
+      if (typeof data.child_chunk_size === 'number') kb.child_chunk_size = data.child_chunk_size
+      if (typeof data.child_chunk_overlap === 'number') kb.child_chunk_overlap = data.child_chunk_overlap
       Object.assign(kb, withKbAliases(kb))
       return ok(kb)
     }
