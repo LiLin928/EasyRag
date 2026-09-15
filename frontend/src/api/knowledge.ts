@@ -19,6 +19,8 @@ import type {
   RetrievalTestSet,
   RetrievalTestSetPayload,
   TreeNode,
+  SearchRequest,
+  SearchResult,
 } from '@/types/knowledge'
 
 interface ListResult<T> {
@@ -296,4 +298,15 @@ export function getDocElements(params: {
 }): Promise<ListResult<DocElement>> {
   const { docId, ...rest } = params
   return request.get('/documents/' + docId + '/elements', { params: rest })
+}
+
+// ========== 检索 ==========
+
+/**
+ * 知识库检索
+ * @param params 检索参数
+ * @returns 检索结果
+ */
+export function search(params: SearchRequest): Promise<SearchResult> {
+  return request.post('/search', params)
 }

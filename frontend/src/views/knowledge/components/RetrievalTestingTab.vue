@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
-import type { RetrievalTestSet, RetrievalTestCase, RetrievalTestCaseResult, RetrievalCandidate } from '@/types/knowledge'
+import type { RetrievalTestSet, RetrievalTestCase, RetrievalTestCaseResult, RetrievalCandidate, ParentChunk } from '@/types/knowledge'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useRoute } from 'vue-router'
 import TestSetList from './TestSetList.vue'
 import TestCaseTable from './TestCaseTable.vue'
 import TestRunPanel from './TestRunPanel.vue'
 import CandidateDetailDrawer from './CandidateDetailDrawer.vue'
+import ParentChunkDetailDrawer from './ParentChunkDetailDrawer.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 
 const props = defineProps<{
@@ -20,6 +21,8 @@ const rightTab = ref<'cases' | 'candidates' | 'config'>('cases')
 const selectedResultCase = ref<RetrievalTestCase | null>(null)
 const drawerOpen = ref(false)
 const drawerCandidate = ref<RetrievalCandidate | null>(null)
+const parentDrawerOpen = ref(false)
+const drawerParent = ref<ParentChunk | null>(null)
 const testRunPanelRef = ref<InstanceType<typeof TestRunPanel> | null>(null)
 
 const hasActiveRun = computed(() => {
@@ -36,7 +39,21 @@ const activeResult = computed<RetrievalTestCaseResult | null>(() => {
 
 const candidates = computed<RetrievalCandidate[]>(() => {
   if (!activeResult.value) return []
-  return activeResult.value.results || []
+  const results = activeResult.value.results || []
+  // 仅在传统模式下返回候选；父子分段模式下走 parentChunks
+  if (isParentChild.value) return []
+  return results as RetrievalCandidate[]
+})
+
+/** 当前运行是否为父子分段检索模式 */
+const isParentChild = computed<boolean>(() => {
+  return currentRun.value?.config_snapshot?.retrieval_mode === 'parent_child'
+})
+
+/** 父子分段模式下的父分段结果列表 */
+const parentChunks = computed<ParentChunk[]>(() => {
+  if (!activeResult.value || !isParentChild.value) return []
+  return (activeResult.value.results || []) as ParentChunk[]
 })
 
 // Load test sets on mount
@@ -97,6 +114,11 @@ function handleClearRun() {
 function handleCandidateClick(candidate: RetrievalCandidate) {
   drawerCandidate.value = candidate
   drawerOpen.value = true
+}
+
+function handleParentChunkClick(parent: ParentChunk) {
+  drawerParent.value = parent
+  parentDrawerOpen.value = true
 }
 
 async function handleRunStarted() {
@@ -179,7 +201,42 @@ const configSnapshot = computed(() => currentRun.value?.config_snapshot)
         </el-tab-pane>
 
         <el-tab-pane label="命中明细" name="candidates" :disabled="!selectedResultCase">
-          <el-table v-if="candidates.length" :data="candidates" stripe size="small">
+          <!-- 父子分段模式：父分段（章节）结果 -->
+          <el-table
+            v-if="isParentChild && parentChunks.length"
+            :data="parentChunks"
+            stripe
+            size="small"
+          >
+            <el-table-column label="Rank" width="60" align="center">
+              <template #default="{ $index }">{{ $index + 1 }}</template>
+            </el-table-column>
+            <el-table-column label="文档" prop="document_name" min-width="140" show-overflow-tooltip />
+            <el-table-column label="章节标题" prop="title" min-width="160" show-overflow-tooltip />
+            <el-table-column label="层级" width="80" align="center">
+              <template #default="{ row }">L{{ row.level }}</template>
+            </el-table-column>
+            <el-table-column label="子分段数" prop="child_chunk_count" width="90" align="center" />
+            <el-table-column label="命中片段" width="90" align="center">
+              <template #default="{ row }">{{ row.children?.length || 0 }}</template>
+            </el-table-column>
+            <el-table-column label="得分" width="90" align="center">
+              <template #default="{ row }">{{ fmtScore(row.score) }}</template>
+            </el-table-column>
+            <el-table-column label="命中" width="60" align="center">
+              <template #default="{ row }">
+                <el-icon v-if="selectedResultCase?.expected_doc_ids.includes(row.document_id)" color="#16A34A"><Select /></el-icon>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="60" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="handleParentChunkClick(row as ParentChunk)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <!-- 传统模式：分段候选结果 -->
+          <el-table v-else-if="candidates.length" :data="candidates" stripe size="small">
             <el-table-column label="Rank" prop="rank" width="60" align="center" />
             <el-table-column label="文档" prop="document_name" min-width="140" show-overflow-tooltip />
             <el-table-column label="内容" min-width="200" show-overflow-tooltip>
@@ -268,6 +325,11 @@ const configSnapshot = computed(() => currentRun.value?.config_snapshot)
       v-model="drawerOpen"
       :candidate="drawerCandidate"
       :test-case="selectedResultCase"
+    />
+
+    <ParentChunkDetailDrawer
+      v-model="parentDrawerOpen"
+      :parent-chunk="drawerParent"
     />
   </div>
 </template>

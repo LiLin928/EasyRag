@@ -21,6 +21,7 @@ const k5 = ref(true)
 const k10 = ref(false)
 const overrideExpanded = ref<string[]>([])
 const overrideMethod = ref('')
+const overrideMode = ref<'traditional' | 'parent_child' | ''>('')
 const cancelling = ref(false)
 const documentMetadataInput = ref('')
 const chunkMetadataInput = ref('')
@@ -74,8 +75,10 @@ async function handleRun(caseIds?: string[]) {
     ks: selectedKs.value
   }
   if (caseIds?.length) payload.case_ids = caseIds
-  if (overrideMethod.value) {
-    payload.override_config = { method: overrideMethod.value }
+  if (overrideMethod.value || overrideMode.value) {
+    payload.override_config = {}
+    if (overrideMethod.value) payload.override_config.method = overrideMethod.value
+    if (overrideMode.value) payload.override_config.mode = overrideMode.value
   }
 
   // 添加元数据过滤参数
@@ -128,6 +131,12 @@ async function handleCancel() {
                 <el-option label="向量" value="vector" />
                 <el-option label="关键词" value="keyword" />
                 <el-option label="混合" value="hybrid" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="检索模式">
+              <el-select v-model="overrideMode" placeholder="默认（传统）" clearable style="width: 160px">
+                <el-option label="传统单层" value="traditional" />
+                <el-option label="父子分段" value="parent_child" />
               </el-select>
             </el-form-item>
           </el-form>

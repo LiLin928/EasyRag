@@ -3,6 +3,7 @@
 export type MetadataScope = 'document' | 'chunk'
 export type MetadataDataType = 'string' | 'number' | 'date' | 'select' | 'boolean'
 export type RetrievalMethod = 'vector' | 'keyword' | 'hybrid'
+export type RetrievalMode = 'traditional' | 'parent_child' // 检索模式：传统 / 父子分段
 export type TestRunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled'
 export type TestCaseStatus =
   | 'pending'
@@ -191,7 +192,8 @@ export interface RetrievalCandidate {
 export interface RetrievalTestCaseResult extends RetrievalTestCase {
   run_id: string
   hit_doc_ids: string[]
-  results: RetrievalCandidate[]
+  /** 检索结果：传统模式返回 RetrievalCandidate，父子分段模式返回 ParentChunk */
+  results: RetrievalCandidate[] | ParentChunk[]
   metrics: Record<string, unknown>
   error: string | null
 }
@@ -208,6 +210,8 @@ export interface RetrievalTestRun {
     rerank_model: { id: string; name: string; prov: string } | null
     document_metadata: Record<string, unknown>
     chunk_metadata: Record<string, unknown>
+    /** 检索模式：traditional(传统) / parent_child(父子分段) */
+    retrieval_mode: RetrievalMode
   }
   override_config: Record<string, unknown>
   total_cases: number
@@ -271,4 +275,58 @@ export interface UploadParams {
   files: File[]
   mode: 'fast' | 'precision'
   scene?: string
+}
+
+// ========== 父子分段相关类型 ==========
+
+/**
+ * 子分段（父子分段模式下的检索单元）
+ */
+export interface ChildChunk {
+  id: string
+  position: number // 在父分段内的位置（从 1 开始）
+  content: string
+  score: number // 检索得分
+}
+
+/**
+ * 父分段（章节级检索单元）
+ */
+export interface ParentChunk {
+  id: string // tree_node_id
+  document_id: string
+  document_name: string
+  title: string // 章节标题
+  level: number // 章节层级
+  content: string // 父分段完整内容（所有子分段拼接）
+  parent_chunk_mode: string // 父分段模式
+  child_chunk_count: number // 子分段数量
+  score: number // 检索得分（最高子分段得分）
+  children: ChildChunk[] // 命中的子分段列表
+  section_path: string // 章节路径
+}
+
+/**
+ * 检索请求参数
+ */
+export interface SearchRequest {
+  kb_ids: string[]
+  document_ids?: string[]
+  question: string
+  top_k?: number
+  override_config?: Record<string, unknown>
+  document_metadata?: Record<string, unknown>
+  chunk_metadata?: Record<string, unknown>
+  mode?: RetrievalMode // 检索模式
+}
+
+/**
+ * 检索结果
+ */
+export interface SearchResult {
+  results: RetrievalCandidate[] | ParentChunk[] // 传统模式返回 RetrievalCandidate，父子分段返回 ParentChunk
+  rerank_triggered: boolean
+  rerank_skipped_reason: string | null
+  mode: string // 实际使用的检索模式
+  nav_info: Record<string, unknown> | null
 }

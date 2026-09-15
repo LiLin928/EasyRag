@@ -13,6 +13,8 @@ import type {
   RetrievalTestCaseResult,
   RetrievalTestRun,
   RetrievalTestSet,
+  ParentChunk,
+  ChildChunk,
 } from '@/types/knowledge'
 
 type Data = Record<string, unknown>
@@ -277,6 +279,66 @@ export const mockChunks: ChunkAsset[] = [
   chunk('chunk9', 'doc3', 9, '异议应在评分结果公示后三个工作日内提出。', '异议处理', null, { clause_type: '程序', effective_status: '现行', effective_date: '2026-04-01', priority: 'low' }),
 ]
 
+// ========== 父子分段 Mock 数据 ==========
+
+/**
+ * Mock 子分段数据
+ */
+function childChunk(
+  id: string,
+  treeNodeId: string,
+  position: number,
+  content: string,
+  score: number
+): ChildChunk {
+  return {
+    id,
+    position,
+    content,
+    score,
+  }
+}
+
+/**
+ * Mock 父分段数据
+ */
+export const mockParentChunks: ParentChunk[] = [
+  {
+    id: 'node-1',
+    document_id: 'doc1',
+    document_name: '招标文件.docx',
+    title: '第一章 招标公告',
+    level: 1,
+    content: '本项目需建设统一知识库，支持元数据筛选与混合检索。投标人应提供系统架构说明、实施计划和验收方案。中标人负责数据迁移、系统部署和运维支持。',
+    parent_chunk_mode: 'paragraph',
+    child_chunk_count: 3,
+    score: 0.85,
+    children: [
+      childChunk('cc1', 'node-1', 1, '本项目需建设统一知识库，支持元数据筛选与混合检索。', 0.85),
+      childChunk('cc2', 'node-1', 2, '投标人应提供系统架构说明、实施计划和验收方案。', 0.82),
+      childChunk('cc3', 'node-1', 3, '中标人负责数据迁移、系统部署和运维支持。', 0.78),
+    ],
+    section_path: '第一章 招标公告',
+  },
+  {
+    id: 'node-2',
+    document_id: 'doc1',
+    document_name: '招标文件.docx',
+    title: '第二章 投标人须知',
+    level: 1,
+    content: '技术响应必须覆盖检索精度、响应时间和安全要求。项目采用分阶段验收，每阶段输出验收报告。违约责任按合同总额的千分之五执行。',
+    parent_chunk_mode: 'paragraph',
+    child_chunk_count: 3,
+    score: 0.79,
+    children: [
+      childChunk('cc4', 'node-2', 1, '技术响应必须覆盖检索精度、响应时间和安全要求。', 0.79),
+      childChunk('cc5', 'node-2', 2, '项目采用分阶段验收，每阶段输出验收报告。', 0.75),
+      childChunk('cc6', 'node-2', 3, '违约责任按合同总额的千分之五执行。', 0.72),
+    ],
+    section_path: '第二章 投标人须知',
+  },
+]
+
 const BUILT_IN_DOCUMENT_FIELD_KEYS = new Set([
   'document_name',
   'file_size',
@@ -521,6 +583,7 @@ function completedRun(): RetrievalTestRun {
       rerank_model: settings.rerank_model ? { ...settings.rerank_model } : null,
       document_metadata: {},
       chunk_metadata: {},
+      retrieval_mode: 'traditional',
     },
     override_config: { method: 'hybrid' },
     total_cases: 4,
@@ -553,6 +616,7 @@ export const mockTestRuns: RetrievalTestRun[] = [
       rerank_model: null,
       document_metadata: {},
       chunk_metadata: {},
+      retrieval_mode: 'traditional',
     },
     override_config: {},
     total_cases: 2,
@@ -845,12 +909,18 @@ function advanceRun(run: RetrievalTestRun): void {
   if (run.status !== 'running') return
   const pending = mockTestCaseResults.find((item) => item.run_id === run.id && item.status === 'pending')
   if (pending) {
-    const candidates = pending.query.includes('验收')
-      ? ['chunk5', 'chunk1', 'chunk4']
-      : pending.query.includes('投标人')
-        ? ['chunk4', 'chunk6', 'chunk1']
-        : ['chunk1', 'chunk4', 'chunk2']
-    pending.results = candidates.map((chunkId, index) => candidate(index + 1, chunkId, 0.96 - index * 0.09))
+    if (run.config_snapshot.retrieval_mode === 'parent_child') {
+      // 父子分段模式：返回父分段（章节）结果
+      pending.results = cloneJson(mockParentChunks)
+    } else {
+      // 传统模式：返回分段候选
+      const candidates = pending.query.includes('验收')
+        ? ['chunk5', 'chunk1', 'chunk4']
+        : pending.query.includes('投标人')
+          ? ['chunk4', 'chunk6', 'chunk1']
+          : ['chunk1', 'chunk4', 'chunk2']
+      pending.results = candidates.map((chunkId, index) => candidate(index + 1, chunkId, 0.96 - index * 0.09))
+    }
     pending.hit_doc_ids = Array.from(new Set(pending.results.map((item) => item.document_id)))
       .filter((id) => pending.expected_doc_ids.includes(id))
     pending.status = pending.expected_doc_ids.length === 0
@@ -1074,6 +1144,8 @@ export function handleKnowledgeMock(
     if (!cases.length) return invalid('没有可执行的启用用例')
     const runKbId = mockTestSets.find((item) => item.id === setId)?.kb_id || 'kb1'
     const settings = retrievalSettingsFor(runKbId)
+    const overrideConfig = isRecord(data.override_config) ? data.override_config : {}
+    const retrievalMode = overrideConfig.mode === 'parent_child' ? 'parent_child' : 'traditional'
     const run: RetrievalTestRun = {
       id: nextId('run-'),
       test_set_id: setId,
@@ -1091,8 +1163,9 @@ export function handleKnowledgeMock(
         rerank_model: settings.rerank_model ? { ...settings.rerank_model } : null,
         document_metadata: isRecord(data.document_metadata) ? data.document_metadata : {},
         chunk_metadata: isRecord(data.chunk_metadata) ? data.chunk_metadata : {},
+        retrieval_mode: retrievalMode,
       },
-      override_config: isRecord(data.override_config) ? data.override_config : {},
+      override_config: overrideConfig,
       total_cases: cases.length,
       completed_cases: 0,
       metrics: {},
@@ -1375,6 +1448,60 @@ export function handleKnowledgeMock(
 
   if (path === '/documents/tree-cache') {
     return ok({ tree: mockTree, elements: mockElements, task: mockParseTask })
+  }
+
+  // ========== 检索 API ==========
+  if (path === '/search' && upperMethod === 'POST') {
+    const mode = text(data.mode, 'traditional')
+    const question = text(data.question)
+    const topK = numberValue(data.top_k, 20)
+
+    // 简单的关键词匹配模拟
+    const hasKeyword = (keyword: string) => question.toLowerCase().includes(keyword)
+
+    if (mode === 'parent_child') {
+      // 父子分段检索模式
+      const results = mockParentChunks.filter((item) => {
+        return hasKeyword('招标') || hasKeyword('投标') || hasKeyword('知识库') || hasKeyword('检索')
+      }).slice(0, topK)
+
+      return ok({
+        results,
+        rerank_triggered: false,
+        rerank_skipped_reason: 'parent_child_mode',
+        mode: 'parent_child',
+        nav_info: null,
+      })
+    } else {
+      // 传统检索模式
+      const results: RetrievalCandidate[] = mockChunks.filter((item) => {
+        return hasKeyword('招标') || hasKeyword('投标') || hasKeyword('知识库') || hasKeyword('检索')
+      }).slice(0, topK).map((item, index) => ({
+        rank: index + 1,
+        chunk_id: item.id,
+        document_id: item.document_id,
+        document_name: item.document_name,
+        section_path: item.section_path,
+        page_number: item.page_number,
+        char_count: item.char_count,
+        content: item.content,
+        vector_score: 0.85 - index * 0.05,
+        keyword_score: null,
+        vector_rank: index + 1,
+        keyword_rank: null,
+        rrf_score: 0.85 - index * 0.05,
+        rerank_score: null,
+        metadata: item.metadata,
+      }))
+
+      return ok({
+        results,
+        rerank_triggered: false,
+        rerank_skipped_reason: 'mock_mode',
+        mode: 'hybrid',
+        nav_info: null,
+      })
+    }
   }
 
   return null
