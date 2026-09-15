@@ -59,7 +59,7 @@ const selectedNodeResult = computed(() => {
 })
 
 // 拖拽调整高度
-function startResize(e: MouseEvent) {
+function startResize(_e: MouseEvent) {
   isResizing.value = true
   document.body.style.cursor = 'ns-resize'
   document.body.style.userSelect = 'none'

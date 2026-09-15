@@ -135,7 +135,7 @@ function getNodeStatusType(status: string) {
           link 
           type="primary" 
           size="small"
-          @click="handleViewDetail(row)"
+          @click="handleViewDetail(row as Execution)"
         >
           查看
         </el-button>
@@ -144,7 +144,7 @@ function getNodeStatusType(status: string) {
           link 
           type="primary" 
           size="small"
-          @click="handleRerun(row)"
+          @click="handleRerun(row as Execution)"
         >
           重跑
         </el-button>
@@ -222,7 +222,7 @@ function getNodeStatusType(status: string) {
               </el-table-column>
               <el-table-column label="操作" width="80" fixed="right">
                 <template #default="{ row: nodeRow }">
-                  <el-button link type="primary" size="small" @click="showNodeDetail(nodeRow)">
+                  <el-button link type="primary" size="small" @click="showNodeDetail(nodeRow as NodeExecutionDetail)">
                     详情
                   </el-button>
                 </template>

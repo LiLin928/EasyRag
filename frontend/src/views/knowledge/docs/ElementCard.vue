@@ -17,14 +17,6 @@ const typeMap: Record<string, { label: string; color: string }> = {
 function getTypeInfo(type: string) {
   return typeMap[type] || { label: type, color: '#909399' }
 }
-
-function parseTableContent(content: string) {
-  try {
-    return JSON.parse(content)
-  } catch {
-    return null
-  }
-}
 </script>
 
 <template>

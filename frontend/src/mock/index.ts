@@ -9,7 +9,7 @@ import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'a
 // @ts-ignore - 该深路径未随包提供类型声明，见 vite-env.d.ts 中的模块声明
 import xhrAdapter from 'axios/lib/adapters/xhr.js'
 import { mockLoginResponse, mockRefreshResponse, mockUserInfoResponse, mockLogoutResponse } from './auth'
-import { handleKnowledgeMock, mockTree, mockElements, mockParseTask } from './knowledge'
+import { handleKnowledgeMock, mockTree, mockElements } from './knowledge'
 import { mockMessages, mockScenes } from './chat'
 import { handleWorkflowMock } from './workflow'
 import { mockTools, createMockTestResult } from './tool'
@@ -138,13 +138,10 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
     const taskMatch = url.match(/\/parse-tasks\/([^\/]+)/)
     if (taskMatch) {
       const task: ParseTask = {
-        id: taskMatch[1],
-        docId: 'doc1',
+        task_id: taskMatch[1],
+        doc_id: 'doc1',
         status: 'done',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        progress: 100,
-        result: mockParseTask
+        pct: 100
       }
       return ok(task)
     }
@@ -198,13 +195,16 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
 
   // ========== 工具/技能/MCP 测试 ==========
   if (url.includes('/tools/') && url.includes('/test')) {
-    return ok(createMockTestResult())
+    const toolId = url.match(/\/tools\/([^\/]+)/)?.[1] || ''
+    return ok(createMockTestResult(toolId, requestData as Record<string, any>))
   }
   if (url.includes('/skills/') && url.includes('/test')) {
-    return ok(createMockTestResult())
+    const skillId = url.match(/\/skills\/([^\/]+)/)?.[1] || ''
+    return ok(createMockTestResult(skillId, requestData as Record<string, any>))
   }
   if (url.includes('/mcps/') && url.includes('/test')) {
-    return ok(createMcpTestResult())
+    const mcpId = url.match(/\/mcps\/([^\/]+)/)?.[1] || ''
+    return ok(createMcpTestResult(mcpId))
   }
 
   // ========== 工具相关 ==========
@@ -215,10 +215,12 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
       const newTool: Tool = {
         id: 'tool' + Date.now(),
         name: requestString(requestData, 'name', '新工具'),
+        type: (requestString(requestData, 'type', 'HTTP') as Tool['type']) || 'HTTP',
         desc: requestString(requestData, 'desc', ''),
-        type: requestString(requestData, 'type', 'api'),
-        config: requestData.config as Record<string, unknown> || {},
+        sig: requestString(requestData, 'sig', ''),
         enabled: requestBoolean(requestData, 'enabled', true),
+        params: [],
+        auth: { mode: 'none', key: '' },
         createdAt: new Date().toISOString()
       }
       mockTools.push(newTool)
@@ -251,11 +253,18 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
     } else if (method === 'POST') {
       const newSkill: Skill = {
         id: 'skill' + Date.now(),
+        ico: requestString(requestData, 'ico', '🎯'),
         name: requestString(requestData, 'name', '新技能'),
+        scope: (requestString(requestData, 'scope', 'custom') as Skill['scope']) || 'custom',
+        ver: requestString(requestData, 'ver', '1.0.0'),
         desc: requestString(requestData, 'desc', ''),
-        code: requestString(requestData, 'code', ''),
-        enabled: requestBoolean(requestData, 'enabled', true),
-        createdAt: new Date().toISOString()
+        trigger: requestString(requestData, 'trigger', ''),
+        prompt: requestString(requestData, 'prompt', ''),
+        tools: [],
+        docs: [],
+        wfs: [],
+        examples: [],
+        scripts: []
       }
       mockSkills.push(newSkill)
       return ok(newSkill)
@@ -288,10 +297,12 @@ function matchMock(config: InternalAxiosRequestConfig): unknown | null {
       const newMcp: Mcp = {
         id: 'mcp' + Date.now(),
         name: requestString(requestData, 'name', '新 MCP'),
-        desc: requestString(requestData, 'desc', ''),
-        type: requestString(requestData, 'type', 'sse'),
-        url: requestString(requestData, 'url', ''),
-        enabled: requestBoolean(requestData, 'enabled', true),
+        tp: (requestString(requestData, 'tp', 'SSE') as Mcp['tp']) || 'SSE',
+        cmd: requestString(requestData, 'cmd', ''),
+        status: 'off',
+        toolCount: 0,
+        env: [],
+        timeout: 60,
         createdAt: new Date().toISOString()
       }
       mockMcps.push(newMcp)

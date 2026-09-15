@@ -296,7 +296,7 @@ export const mockChunks: ChunkAsset[] = [
  */
 function childChunk(
   id: string,
-  treeNodeId: string,
+  _treeNodeId: string,
   position: number,
   content: string,
   score: number
@@ -1510,7 +1510,7 @@ export function handleKnowledgeMock(
 
     if (mode === 'parent_child') {
       // 父子分段检索模式
-      const results = mockParentChunks.filter((item) => {
+      const results = mockParentChunks.filter(() => {
         return hasKeyword('招标') || hasKeyword('投标') || hasKeyword('知识库') || hasKeyword('检索')
       }).slice(0, topK)
 
@@ -1523,7 +1523,7 @@ export function handleKnowledgeMock(
       })
     } else {
       // 传统检索模式
-      const results: RetrievalCandidate[] = mockChunks.filter((item) => {
+      const results: RetrievalCandidate[] = mockChunks.filter(() => {
         return hasKeyword('招标') || hasKeyword('投标') || hasKeyword('知识库') || hasKeyword('检索')
       }).slice(0, topK).map((item, index) => ({
         rank: index + 1,

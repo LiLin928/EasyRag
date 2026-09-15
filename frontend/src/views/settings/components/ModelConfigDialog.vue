@@ -23,7 +23,10 @@ const emit = defineEmits<{
 const formRef = ref()
 const loading = ref(false)
 
-const form = reactive<ModelDef>({
+// 对话框内 params 始终为字符串键值（非可选），避免 ModelDef.params? 带来的空值窄化
+type ModelForm = Omit<ModelDef, 'params'> & { params: Record<string, string> }
+
+const form = reactive<ModelForm>({
   name: '',
   prov: 'dashscope',
   use: 'qa',

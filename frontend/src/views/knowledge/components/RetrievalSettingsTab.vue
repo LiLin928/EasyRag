@@ -43,15 +43,6 @@ type SettingsKey =
 type SettingsForm = Record<SettingsKey, SettingsValue>
 type NumericSettingsKey = Exclude<SettingsKey, 'method' | 'rerank_enabled' | 'navigation_enabled'>
 
-interface ModelOption {
-  id: string
-  name: string
-  prov: string
-  use: 'embedding' | 'rerank'
-  enabled: boolean
-  dim?: number
-}
-
 interface NumericField {
   key: NumericSettingsKey
   label: string
@@ -96,7 +87,7 @@ const embeddingModels = computed(() => {
   return embedModelsFromSettings.value
     .filter(m => m.enabled && (m.dim === '1024' || m.dim === 1024))
     .map(m => ({
-      id: m.id,  // 使用模型的 UUID
+      id: m.id ?? '',  // 使用模型的 UUID
       name: m.name,
       prov: m.prov || '',
       use: 'embedding' as const,
@@ -111,7 +102,7 @@ const rerankModels = computed(() => {
   return rerankModelsFromSettings.value
     .filter(m => m.enabled)
     .map(m => ({
-      id: m.id,  // 使用模型的 UUID
+      id: m.id ?? '',  // 使用模型的 UUID
       name: m.name,
       prov: m.prov || '',
       use: 'rerank' as const,
