@@ -24,6 +24,35 @@ from app.services.tool_service import execute_tool
 WORKFLOW_TIMEOUT_SECONDS = 60
 
 
+def _sanitize_tool_name(name: str, prefix: str = "tool") -> str:
+    """将工具名称转换为符合 API 要求的格式。
+
+    只允许字母、数字、下划线、连字符。
+    不能以数字开头。
+
+    Args:
+        name: 原始工具名称
+        prefix: 如果名称不合法时使用的前缀
+
+    Returns:
+        合法的工具名称
+    """
+    import re
+
+    # 移除非法字符，替换为下划线
+    sanitized = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+
+    # 如果以数字开头，添加前缀
+    if sanitized and sanitized[0].isdigit():
+        sanitized = f'{prefix}_{sanitized}'
+
+    # 如果为空或只有下划线，使用默认名称
+    if not sanitized or sanitized == '_' * len(sanitized):
+        sanitized = f'{prefix}_unnamed'
+
+    return sanitized
+
+
 async def build_tools(agent: Agent) -> list:
     """聚合 agent 挂载的五类资源为 BaseTool 列表。"""
     tools: list = []
@@ -47,7 +76,11 @@ async def build_tools(agent: Agent) -> list:
             if m and m.status == "on":
                 try:
                     from app.core.agent.tool_adapters.mcp_tools import load_tools as _load_mcp
-                    tools.extend(await _load_mcp(m))
+                    mcp_tools = await _load_mcp(m)
+                    # 转换MCP工具名称为合法格式
+                    for t in mcp_tools:
+                        t.name = _sanitize_tool_name(t.name)
+                    tools.extend(mcp_tools)
                 except Exception:
                     pass
         # 5. skills → 技能激活工具
@@ -70,10 +103,13 @@ def _tool_to_structured(t: Tool):
         result = await execute_tool(str(t.id), kwargs)
         return result.get("data")
 
+    # 转换工具名称为合法格式
+    tool_name = _sanitize_tool_name(t.name)
+
     return StructuredTool.from_function(
         coroutine=_run,
-        name=t.name,
-        description=t.description or t.name,
+        name=tool_name,  # 使用转换后的合法名称
+        description=t.description or t.name,  # 描述可以包含中文
         args_schema=Args,
     )
 
@@ -111,9 +147,12 @@ def _workflow_tool(wf: Workflow):
             await asyncio.sleep(1)
         return "工作流执行超时"
 
+    # 转换工作流名称为合法格式
+    tool_name = _sanitize_tool_name(wf.name, prefix="workflow")
+
     return StructuredTool.from_function(
         coroutine=_run,
-        name=f"workflow_{wf.name}",
+        name=tool_name,
         description=wf.description or wf.name,
     )
 
@@ -134,7 +173,10 @@ def _skill_tool(sk: Skill):
     """构建技能激活工具，返回技能 prompt 前缀。"""
     from langchain_core.tools import tool
 
-    @tool(sk.name, description=f"激活技能：{sk.description or ''}")
+    # 转换技能名称为合法格式
+    skill_name = _sanitize_tool_name(sk.name, prefix="skill")
+
+    @tool(skill_name, description=f"激活技能：{sk.description or ''}")
     def _activate() -> str:
         return f"[SKILL {sk.name}]\n{sk.prompt or ''}"
 
