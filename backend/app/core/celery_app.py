@@ -132,6 +132,14 @@ def init_worker_process(**kwargs):
     """Celery worker 进程启动时初始化资源"""
     logger.info("[Celery] Worker process initializing...")
 
+    # Windows 兼容性：设置正确的事件循环策略
+    import sys
+    if sys.platform == 'win32':
+        import asyncio
+        from asyncio import WindowsSelectorEventLoopPolicy
+        asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+        logger.info("[Celery] Set WindowsSelectorEventLoopPolicy for asyncpg compatibility")
+
     # 初始化 checkpointer（在事件循环中运行）
     try:
         from app.core.agent.memory import get_checkpointer

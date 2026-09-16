@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { Warning } from '@element-plus/icons-vue'
 import { useToolStore } from '@/stores/tool'
 import { useKnowledgeStore } from '@/stores/knowledge'
@@ -45,16 +45,16 @@ const selectedSkills = ref<string[]>([])
 // 当前激活的 Tab
 const activeTab = ref('tools')
 
-// 加载状态
-const loading = ref({
-  tools: false,
-  docs: false,
-  wfs: false,
-  mcps: false,
-  skills: false
-})
+// 从 store 获取 loading 状态
+const loading = computed(() => ({
+  tools: toolStore.loading,
+  docs: knowledgeStore.loading,
+  wfs: workflowListStore.loading,
+  mcps: mcpStore.loading,
+  skills: skillStore.loading
+}))
 
-// 错误状态
+// 错误状态（保留用于 UI 显示）
 const error = ref({
   tools: null as string | null,
   docs: null as string | null,
@@ -123,62 +123,8 @@ watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], 
   })
 }, { deep: true })
 
-// 加载所需数据（添加错误处理）
-onMounted(async () => {
-  // 并行加载所有数据
-  const loadDataPromises = [
-    (async () => {
-      loading.value.tools = true
-      error.value.tools = null
-      try {
-        await toolStore.loadTools()
-      } catch (e: any) {
-        error.value.tools = e.message || '加载工具失败'
-        console.error('加载工具失败:', e)
-      } finally {
-        loading.value.tools = false
-      }
-    })(),
-    (async () => {
-      loading.value.wfs = true
-      error.value.wfs = null
-      try {
-        await workflowListStore.loadWorkflows()
-      } catch (e: any) {
-        error.value.wfs = e.message || '加载工作流失败'
-        console.error('加载工作流失败:', e)
-      } finally {
-        loading.value.wfs = false
-      }
-    })(),
-    (async () => {
-      loading.value.mcps = true
-      error.value.mcps = null
-      try {
-        await mcpStore.loadMcps()
-      } catch (e: any) {
-        error.value.mcps = e.message || '加载 MCP 失败'
-        console.error('加载 MCP 失败:', e)
-      } finally {
-        loading.value.mcps = false
-      }
-    })(),
-    (async () => {
-      loading.value.skills = true
-      error.value.skills = null
-      try {
-        await skillStore.loadSkills()
-      } catch (e: any) {
-        error.value.skills = e.message || '加载技能失败'
-        console.error('加载技能失败:', e)
-      } finally {
-        loading.value.skills = false
-      }
-    })()
-  ]
-
-  await Promise.all(loadDataPromises)
-})
+// 注意：数据加载由父组件 AgentConfigDrawer.loadCandidateData() 负责
+// 这里不需要重复加载，避免数据被清空或覆盖
 
 // 计算总挂载数
 const totalCount = computed(() => {

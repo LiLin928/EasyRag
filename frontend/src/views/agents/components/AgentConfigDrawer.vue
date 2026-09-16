@@ -81,18 +81,34 @@ watch(() => props.visible, async (visible) => {
 })
 
 async function loadCandidateData() {
-  await Promise.all([
-    settingsStore.loadModels(),
-    toolStore.loadTools(),
-    knowledgeStore.loadKbList(),
-    workflowListStore.loadWorkflows(),
-    mcpStore.loadMcps(),
-    skillStore.loadSkills()
-  ])
-  // 如果有知识库，加载第一个知识库的文档
-  const kbList = knowledgeStore.kbList
-  if (kbList.length > 0) {
-    await knowledgeStore.loadDocuments(kbList[0].id, 1, 100)
+  try {
+    await Promise.all([
+      settingsStore.loadModels(),
+      toolStore.loadTools().catch(e => {
+        console.error('加载工具失败:', e)
+      }),
+      knowledgeStore.loadKbList().catch(e => {
+        console.error('加载知识库列表失败:', e)
+      }),
+      workflowListStore.loadWorkflows().catch(e => {
+        console.error('加载工作流失败:', e)
+      }),
+      mcpStore.loadMcps().catch(e => {
+        console.error('加载 MCP 失败:', e)
+      }),
+      skillStore.loadSkills().catch(e => {
+        console.error('加载技能失败:', e)
+      })
+    ])
+    // 如果有知识库，加载第一个知识库的文档
+    const kbList = knowledgeStore.kbList
+    if (kbList.length > 0) {
+      await knowledgeStore.loadDocuments(kbList[0].id, 1, 100).catch(e => {
+        console.error('加载文档列表失败:', e)
+      })
+    }
+  } catch (error) {
+    console.error('加载候选数据失败:', error)
   }
 }
 

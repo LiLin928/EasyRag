@@ -22,6 +22,7 @@ async def enqueue_workflow_task(
     trigger: str,
     user_id: str | None,
     priority: int = 5,
+    debug: bool = False,
 ) -> str:
     """创建 WorkflowExecution 记录并提交 Celery 任务，返回 execution_id。
 
@@ -36,6 +37,7 @@ async def enqueue_workflow_task(
                   >= 7: 高优先级队列，用于紧急任务
                   >= 3: 默认业务队列，用于常规任务
                   < 3:  低优先级队列，用于后台清理等
+        debug: 是否调试模式（默认 False）
 
     Returns:
         execution_id: 执行记录 ID
@@ -98,7 +100,7 @@ async def enqueue_workflow_task(
             celery_app.send_task(
                 "execute_workflow",
                 args=[execution_id, definition, inputs or {}],
-                kwargs={"debug": False},
+                kwargs={"debug": debug},
                 queue=queue,
                 task_id=execution_id,  # 使用 execution_id 作为 task_id，便于追踪
                 priority=priority,  # 传递优先级给 Celery

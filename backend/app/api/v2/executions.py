@@ -181,3 +181,18 @@ async def detail(eid: str, me=Depends(get_current_user)):
         ).scalar_one_or_none()
 
     return ok(_exec_out(ex, wf))
+
+
+@router.post("/{eid}/debug/continue")
+async def debug_continue(eid: str, me=Depends(get_current_user)):
+    """调试继续执行（当前为占位实现，实际执行方式取决于工作流配置）。
+
+    注：当前调试模式会一次性执行完所有节点，只是日志更详细。
+    后续版本将支持逐步调试。
+    """
+    # 当前简化实现：直接返回成功
+    # 实际的执行流程由 workflow_tasks 控制
+    return ok({
+        "success": True,
+        "message": "调试模式当前会执行完所有节点，请查看日志了解执行详情"
+    })

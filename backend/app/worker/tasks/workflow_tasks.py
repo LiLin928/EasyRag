@@ -46,6 +46,12 @@ def execute_workflow(
     stream_key = f"workflow:{execution_id}"
 
     try:
+        # Windows 兼容性：设置事件循环策略
+        import sys
+        if sys.platform == 'win32':
+            from asyncio import WindowsSelectorEventLoopPolicy
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+
         # 创建事件循环
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -57,6 +63,11 @@ def execute_workflow(
             )
             return result
         finally:
+            # 清理：关闭事件循环
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
             loop.close()
 
     except Exception as exc:
@@ -122,8 +133,9 @@ async def _execute_workflow_async(
     # 4. 执行工作流
     try:
         config = {"configurable": {"thread_id": execution_id}}
-        logger.info(f"[Workflow] Starting execution {execution_id} with config {config}")
+        logger.info(f"[Workflow] Starting execution {execution_id} with config {config}, debug={debug}")
 
+        # 使用 astream_events 执行工作流
         async for event in graph.astream_events(initial_state, config=config, version="v2"):
             kind = event.get("event")
             name = event.get("name", "")
@@ -228,6 +240,12 @@ def execute_node_task(self, execution_id: str, node: Dict[str, Any]) -> dict:
     stream_key = f"workflow:{execution_id}"
 
     try:
+        # Windows 兼容性：设置事件循环策略
+        import sys
+        if sys.platform == 'win32':
+            from asyncio import WindowsSelectorEventLoopPolicy
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -237,6 +255,11 @@ def execute_node_task(self, execution_id: str, node: Dict[str, Any]) -> dict:
             )
             return result
         finally:
+            # 清理：关闭事件循环
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
             loop.close()
 
     except Exception as exc:

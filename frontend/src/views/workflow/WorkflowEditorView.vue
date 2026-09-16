@@ -345,8 +345,16 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
 
 // 处理 SSE 事件
 function handleSSEEvent(eventType: string, data: any) {
+  console.log('[WorkflowEditor] Handling SSE event:', eventType, data)
+
   switch (eventType) {
     case 'execution_start':
+      // 设置执行状态和调试模式
+      executing.value = true
+      execStore.executing = true
+      if (data.debug !== undefined) {
+        execStore.debugMode = data.debug
+      }
       execStore.addLog('workflow', 'info', `开始执行工作流，共 ${data.total_nodes} 个节点`)
       break
 
@@ -363,14 +371,14 @@ function handleSSEEvent(eventType: string, data: any) {
 
     case 'node_complete':
       execStore.updateNodeState(data.node_id, {
-        status: data.status,
+        status: data.status || 'completed',
         output: data.output,
         durationMs: data.duration_ms
       })
       if (data.output) {
         execStore.addLog(data.node_id, 'result', '输出: ' + data.output.slice(0, 100) + '...')
       }
-      execStore.addLog(data.node_id, data.status, '节点执行完成')
+      execStore.addLog(data.node_id, data.status || 'completed', '节点执行完成')
       break
 
     case 'node_error':
@@ -396,8 +404,24 @@ function handleSSEEvent(eventType: string, data: any) {
       executing.value = false
       execStore.executing = false
       debugPaused.value = false
+
+      // 显示最终结果
+      if (data.result) {
+        const finalOutput = data.result.final_state?.node_outputs
+        if (finalOutput) {
+          console.log('[WorkflowEditor] Final output:', finalOutput)
+          // 找到最后一个有输出的节点
+          const nodeIds = Object.keys(finalOutput)
+          const lastNodeId = nodeIds[nodeIds.length - 1]
+          const lastOutput = finalOutput[lastNodeId]
+          if (lastOutput?.output) {
+            execStore.addLog('workflow', 'result', `最终结果: ${lastOutput.output.slice(0, 200)}...`)
+          }
+        }
+      }
+
       if (data.success) {
-        ElMessage.success(`执行完成，总耗时 ${data.total_duration_ms}ms`)
+        ElMessage.success(`执行完成，总耗时 ${data.total_duration_ms || 0}ms`)
       } else {
         ElMessage.error('执行失败')
       }

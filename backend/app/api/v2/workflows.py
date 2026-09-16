@@ -173,7 +173,7 @@ async def duplicate(wid: str, me=Depends(get_current_user)):
 
 @router.post("/{wid}/execute")
 async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
-    """触发工作流执行：创建 execution + 入队 ARQ task，立即返回 executionId。"""
+    """触发工作流执行：创建 execution + 入队 Celery task，立即返回 executionId。"""
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
         if not wf:
@@ -181,7 +181,9 @@ async def execute(wid: str, body: ExecuteRequest, me=Depends(get_current_user)):
         if not wf.definition or not wf.definition.get("nodes"):
             raise BizException(ErrorCode.BAD_REQUEST, "工作流定义为空，无法执行")
 
-    exec_id = await enqueue_workflow_task(wid, body.inputs or {}, "manual", str(me.id))
+    exec_id = await enqueue_workflow_task(
+        wid, body.inputs or {}, "manual", str(me.id), debug=body.debug
+    )
 
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
