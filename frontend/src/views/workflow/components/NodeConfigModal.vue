@@ -650,8 +650,46 @@ function handleDialogUpdate(val: boolean) {
       <template v-if="showOutputDef">
         <el-divider content-position="left">输出变量定义</el-divider>
 
+        <!-- RAG 节点：预设输出选项 -->
+        <template v-if="isRAGOutputDef">
+          <el-alert type="info" :closable="false" style="margin-bottom: 12px">
+            <template #title>
+              <strong>快速选择</strong>
+            </template>
+            <div style="margin-top: 8px;">
+              <el-button
+                v-for="preset in ragOutputPresets"
+                :key="preset.value"
+                size="small"
+                style="margin-right: 8px; margin-bottom: 8px;"
+                @click="addPresetOutput(preset.value, preset.label)"
+              >
+                {{ preset.label }}
+              </el-button>
+            </div>
+          </el-alert>
+
+          <div v-for="(item, idx) in form.outputVariables" :key="'ov-' + idx" class="param-row">
+            <el-input v-model="item.name" placeholder="变量名" style="width: 140px" />
+            <el-select v-model="item.source" placeholder="选择输出字段" filterable style="flex: 1" clearable>
+              <el-option
+                v-for="preset in ragOutputPresets"
+                :key="preset.value"
+                :label="preset.label"
+                :value="preset.value"
+              >
+                <div>
+                  <div>{{ preset.label }}</div>
+                  <div style="font-size: 12px; color: #909399;">{{ preset.desc }}</div>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button type="danger" link @click="removeOutputVar(idx)">删除</el-button>
+          </div>
+        </template>
+
         <!-- LLM 节点：预设输出选项 -->
-        <template v-if="isLLMOutputDef">
+        <template v-else-if="isLLMOutputDef">
           <el-alert type="info" :closable="false" style="margin-bottom: 12px">
             <template #title>
               <strong>快速选择</strong>
