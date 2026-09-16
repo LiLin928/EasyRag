@@ -49,6 +49,15 @@ watch(
   () => props.node,
   (node) => {
     if (node) {
+      // 完全重置 form 状态，避免保留上一个节点的配置
+      form.value = {
+        name: '',
+        config: {},
+        inputVariables: [],
+        outputVariables: []
+      }
+
+      // 然后赋值新节点的配置
       form.value.name = node.name
       const cfg = node.data?.config || {}
       form.value.config = { ...cfg }
