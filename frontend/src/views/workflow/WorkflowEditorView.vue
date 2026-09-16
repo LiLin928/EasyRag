@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch, computed } from 'vue'
+import { onMounted, onUnmounted, ref, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkflowEditorStore, useWorkflowExecutionStore } from '@/stores/workflow'
@@ -406,8 +406,12 @@ watch(
         configVisible.value = true
       }
     } else {
+      // 先关闭弹窗，再清空选中的节点
       configVisible.value = false
-      selectedNode.value = null
+      // 使用 nextTick 确保组件卸载完成后再清空节点
+      nextTick(() => {
+        selectedNode.value = null
+      })
     }
   }
 )
@@ -481,6 +485,7 @@ watch(
     <ExecutionPanel />
     
     <NodeConfigModal
+      v-if="selectedNode"
       v-model:visible="configVisible"
       :node="selectedNode"
       @save="handleNodeSave"

@@ -48,23 +48,34 @@ const form = ref({
 watch(
   () => props.node,
   (node) => {
-    if (node) {
-      // 完全重置 form 状态，避免保留上一个节点的配置
-      form.value = {
-        name: '',
-        config: {},
-        inputVariables: [],
-        outputVariables: []
-      }
+    if (!node) {
+      // 节点为空时，清空表单
+      form.value.name = ''
+      form.value.config = {}
+      form.value.inputVariables = []
+      form.value.outputVariables = []
+      return
+    }
 
-      // 然后赋值新节点的配置
-      form.value.name = node.name
-      const cfg = node.data?.config || {}
-      form.value.config = { ...cfg }
-      form.value.inputVariables = (cfg.input_variables ? [...cfg.input_variables] : [])
-        .map((v: any) => ({ ...v }))
-      form.value.outputVariables = (cfg.output_variables ? [...cfg.output_variables] : [])
-        .map((v: any) => ({ ...v }))
+    // 先清空旧配置，避免残留
+    form.value.name = ''
+    form.value.config = {}
+    form.value.inputVariables = []
+    form.value.outputVariables = []
+
+    // 然后赋值新节点的配置
+    form.value.name = node.name
+    const cfg = node.data?.config || {}
+    form.value.config = { ...cfg }
+
+    // 处理输入变量
+    if (cfg.input_variables && Array.isArray(cfg.input_variables)) {
+      form.value.inputVariables = cfg.input_variables.map((v: any) => ({ ...v }))
+    }
+
+    // 处理输出变量
+    if (cfg.output_variables && Array.isArray(cfg.output_variables)) {
+      form.value.outputVariables = cfg.output_variables.map((v: any) => ({ ...v }))
     }
   },
   { immediate: true }
