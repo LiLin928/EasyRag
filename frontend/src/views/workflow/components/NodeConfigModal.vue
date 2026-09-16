@@ -107,6 +107,28 @@ const llmOutputPresets = [
 // 判断是否为 LLM 节点输出变量配置
 const isLLMOutputDef = computed(() => props.node?.type === 'llm' && showOutputDef.value)
 
+// ===== RAG 节点：从系统获取知识库和模型 =====
+const enabledKnowledgeBases = computed(() => {
+  // 知识库暂无 enabled 字段，直接返回所有知识库
+  return knowledgeStore.kbList
+})
+
+const enabledEmbedModels = computed(() => {
+  return settingsStore.models.embed.filter(m => m.enabled !== false)
+})
+
+// RAG 输出变量预设选项
+const ragOutputPresets = [
+  { label: '文档列表', value: 'documents', desc: '检索到的文档列表' },
+  { label: '上下文', value: 'context', desc: '拼接后的上下文文本' },
+  { label: '相似度分数', value: 'scores', desc: '每个文档的相似度分数' },
+  { label: '查询文本', value: 'query', desc: '用户的查询文本' },
+  { label: '文档数量', value: 'count', desc: '检索到的文档数量' }
+]
+
+// 判断是否为 RAG 节点输出变量配置
+const isRAGOutputDef = computed(() => props.node?.type === 'rag' && showOutputDef.value)
+
 // ===== 工具节点：从系统工具库选择 =====
 const enabledTools = computed(() => toolStore.tools.filter(t => t.enabled))
 const selectedTool = computed(() => toolStore.tools.find(t => t.id === form.value.config.toolId) || null)
