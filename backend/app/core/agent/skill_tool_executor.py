@@ -55,10 +55,17 @@ def create_skill_tool_with_scripts(sk: Skill) -> StructuredTool:
                 continue
 
             try:
+                # 智能包装脚本，自动识别和调用函数
+                wrapped_script = _wrap_script_with_auto_call(
+                    script_name,
+                    script_content,
+                    inputs
+                )
+
                 # 执行脚本
                 result = await execute_skill_script(
                     script_name=script_name,
-                    script_content=script_content,
+                    script_content=wrapped_script,
                     inputs=inputs,
                     timeout=30,
                 )
@@ -120,3 +127,66 @@ def create_skill_tool_with_scripts(sk: Skill) -> StructuredTool:
         description=sk.description or f"激活技能：{sk.name}",
         args_schema=SkillInput,
     )
+
+
+def _wrap_script_with_auto_call(script_name: str, script_content: str, inputs: dict) -> str:
+    """智能包装脚本，自动识别和调用函数。
+
+    检测脚本中定义的函数，并自动调用最合适的函数。
+    """
+    # 1. 提取脚本中定义的函数名
+    function_pattern = r'def\s+(\w+)\s*\('
+    defined_functions = re.findall(function_pattern, script_content)
+
+    if not defined_functions:
+        # 没有定义函数，直接返回原脚本
+        return script_content
+
+    # 2. 生成自动调用代码
+    auto_call_code = f"""
+# 自动生成的函数调用逻辑
+import json
+
+# 已定义的函数: {defined_functions}
+_defined_functions = {defined_functions}
+
+# 根据函数名和参数智能调用
+result = None
+inputs = json.loads('''{json.dumps(inputs)}''')
+
+# 尝试调用最合适的函数
+if 'main' in _defined_functions:
+    result = main(inputs)
+elif 'run' in _defined_functions:
+    result = run(inputs)
+elif 'execute' in _defined_functions:
+    result = execute(inputs)
+else:
+    # 尝试根据输入参数匹配函数
+    for func_name in _defined_functions:
+        try:
+            func = eval(func_name)
+            # 尝试不同的参数组合
+            if 'text' in inputs or 'query' in inputs:
+                text_param = inputs.get('text', inputs.get('query', ''))
+                result = func(text_param)
+                break
+            elif 'numbers' in inputs:
+                result = func(inputs['numbers'])
+                break
+            else:
+                # 尝试直接传入 inputs 字典
+                result = func(inputs)
+                break
+        except Exception as e:
+            continue
+
+# 如果所有尝试都失败，返回 None
+if result is None:
+    result = {{"warning": "No suitable function found", "available_functions": _defined_functions}}
+
+print(json.dumps({{"success": True, "output": result}}))
+"""
+
+    # 3. 组合完整脚本
+    return f"{script_content}\n\n{auto_call_code}"
