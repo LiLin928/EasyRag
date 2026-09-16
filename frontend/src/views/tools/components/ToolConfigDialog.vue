@@ -286,6 +286,76 @@ async function handleSubmit() {
         </div>
       </el-form-item>
 
+      <!-- HTTP 工具配置 -->
+      <el-form-item v-if="form.type === 'HTTP'" label="URL" prop="url">
+        <el-input
+          v-model="form.config.url"
+          placeholder="例如: https://api.example.com/endpoint"
+          clearable
+        >
+          <template #prepend>
+            <el-select v-model="form.config.method" style="width: 100px">
+              <el-option
+                v-for="item in httpMethodOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </template>
+        </el-input>
+      </el-form-item>
+
+      <el-form-item v-if="form.type === 'HTTP'" label="请求头">
+        <div class="config-section">
+          <div v-if="form.config.headers.length === 0" class="params-empty">
+            暂无自定义请求头
+          </div>
+          <div v-for="(header, index) in form.config.headers" :key="index" class="param-row">
+            <el-input
+              v-model="header.key"
+              placeholder="Header Name"
+              style="flex: 1; margin-right: 8px"
+            />
+            <el-input
+              v-model="header.value"
+              placeholder="Header Value"
+              style="flex: 2; margin-right: 8px"
+            />
+            <el-button
+              type="danger"
+              icon="Delete"
+              size="small"
+              @click="removeHeader(index)"
+            />
+          </div>
+          <el-button type="primary" icon="Plus" size="small" @click="addHeader">
+            添加请求头
+          </el-button>
+        </div>
+      </el-form-item>
+
+      <el-form-item v-if="form.type === 'HTTP'" label="超时设置">
+        <div class="timeout-row">
+          <el-input-number
+            v-model="form.config.timeout"
+            :min="1"
+            :max="300"
+            placeholder="超时时间"
+            style="width: 150px"
+          />
+          <span style="margin: 0 12px; color: #606266">秒</span>
+          <el-input-number
+            v-model="form.config.retryCount"
+            :min="0"
+            :max="5"
+            placeholder="重试次数"
+            style="width: 150px"
+          />
+          <span style="margin-left: 8px; color: #606266">次重试</span>
+        </div>
+      </el-form-item>
+
       <el-form-item label="鉴权">
         <div class="auth-section">
           <el-select v-model="form.auth.mode" placeholder="选择鉴权方式" style="width: 200px; margin-bottom: 8px">
@@ -322,6 +392,10 @@ async function handleSubmit() {
   width: 100%;
 }
 
+.config-section {
+  width: 100%;
+}
+
 .params-empty {
   color: #909399;
   font-size: 13px;
@@ -332,6 +406,11 @@ async function handleSubmit() {
   display: flex;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.timeout-row {
+  display: flex;
+  align-items: center;
 }
 
 .auth-section {
