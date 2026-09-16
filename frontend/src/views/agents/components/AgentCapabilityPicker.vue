@@ -103,24 +103,33 @@ const skillOptions = computed(() => {
   }))
 })
 
-// 监听数据变化
+// 初始化标记，避免初始化时触发 emit
+const isInitialized = ref(false)
+
+// 监听 props 变化（仅初始化时使用）
 watch(() => [props.tools, props.docs, props.wfs, props.mcps, props.skills], ([tools, docs, wfs, mcps, skills]) => {
-  selectedTools.value = [...(tools || [])]
-  selectedDocs.value = [...(docs || [])]
-  selectedWfs.value = [...(wfs || [])]
-  selectedMcps.value = [...(mcps || [])]
-  selectedSkills.value = [...(skills || [])]
+  if (!isInitialized.value) {
+    selectedTools.value = [...(tools || [])]
+    selectedDocs.value = [...(docs || [])]
+    selectedWfs.value = [...(wfs || [])]
+    selectedMcps.value = [...(mcps || [])]
+    selectedSkills.value = [...(skills || [])]
+    isInitialized.value = true
+  }
 }, { immediate: true })
 
-// 监听选择变化
+// 监听选择变化（用户操作时触发）
 watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], ([tools, docs, wfs, mcps, skills]) => {
-  emit('update', {
-    tools: tools || [],
-    docs: docs || [],
-    wfs: wfs || [],
-    mcps: mcps || [],
-    skills: skills || []
-  })
+  // 只有初始化完成后才 emit，避免死循环
+  if (isInitialized.value) {
+    emit('update', {
+      tools: tools || [],
+      docs: docs || [],
+      wfs: wfs || [],
+      mcps: mcps || [],
+      skills: skills || []
+    })
+  }
 }, { deep: true })
 
 // 注意：数据加载由父组件 AgentConfigDrawer.loadCandidateData() 负责
