@@ -31,7 +31,14 @@ const form = reactive({
   auth: {
     mode: 'none' as 'none' | 'apikey' | 'bearer',
     key: ''
-  } as ToolAuth
+  } as ToolAuth,
+  config: {
+    url: '',
+    method: 'GET' as 'GET' | 'POST' | 'PUT' | 'DELETE',
+    headers: [] as Array<{ key: string; value: string }>,
+    timeout: 30,
+    retryCount: 2
+  }
 })
 
 const rules = {
@@ -44,6 +51,11 @@ const rules = {
   ],
   sig: [
     { required: true, message: '请输入函数签名', trigger: 'blur' }
+  ],
+  // 新增：URL 验证（仅 HTTP 类型）
+  url: [
+    { required: true, message: '请输入 URL 地址', trigger: 'blur' },
+    { type: 'url', message: '请输入有效的 URL 地址', trigger: 'blur' }
   ]
 }
 
@@ -59,6 +71,23 @@ const authModeOptions = [
   { label: 'Bearer Token', value: 'bearer' }
 ]
 
+const httpMethodOptions = [
+  { label: 'GET', value: 'GET' },
+  { label: 'POST', value: 'POST' },
+  { label: 'PUT', value: 'PUT' },
+  { label: 'DELETE', value: 'DELETE' }
+]
+
+// 添加请求头
+function addHeader() {
+  form.config.headers.push({ key: '', value: '' })
+}
+
+// 删除请求头
+function removeHeader(index: number) {
+  form.config.headers.splice(index, 1)
+}
+
 // 监听 visible 变化，重置表单
 watch(() => props.visible, (val) => {
   if (val) {
@@ -71,6 +100,16 @@ watch(() => props.visible, (val) => {
       form.enabled = props.data.enabled
       form.params = [...props.data.params]
       form.auth = { ...props.data.auth }
+
+      // 新增：填充 config
+      const cfg = props.data.config || {}
+      form.config.url = cfg.url || ''
+      form.config.method = cfg.method || 'GET'
+      form.config.timeout = cfg.timeout || 30
+      form.config.retryCount = cfg.retryCount || 2
+      // 将 headers 对象转为数组
+      const headers = cfg.headers || {}
+      form.config.headers = Object.entries(headers).map(([key, value]) => ({ key, value: String(value) }))
     } else {
       // 新建模式，重置表单
       form.name = ''
@@ -80,6 +119,15 @@ watch(() => props.visible, (val) => {
       form.enabled = true
       form.params = []
       form.auth = { mode: 'none', key: '' }
+
+      // 新增：重置 config
+      form.config = {
+        url: '',
+        method: 'GET',
+        headers: [],
+        timeout: 30,
+        retryCount: 2
+      }
     }
   }
 })
@@ -109,12 +157,33 @@ async function handleSubmit() {
     return
   }
 
+  // 新增：验证 HTTP 工具的 URL
+  if (form.type === 'HTTP' && !form.config.url.trim()) {
+    ElMessage.warning('HTTP 工具必须填写 URL 地址')
+    return
+  }
+
   loading.value = true
 
   try {
+    // 新增：转换 headers 数组为对象
+    const headersObj: Record<string, string> = {}
+    form.config.headers.forEach(h => {
+      if (h.key.trim() && h.value.trim()) {
+        headersObj[h.key.trim()] = h.value.trim()
+      }
+    })
+
     emit('submit', {
       ...form,
-      params: validParams
+      params: validParams,
+      config: {  // 新增
+        url: form.config.url.trim(),
+        method: form.config.method,
+        headers: headersObj,
+        timeout: form.config.timeout,
+        retryCount: form.config.retryCount
+      }
     })
     emit('update:visible', false)
   } catch (error: any) {
