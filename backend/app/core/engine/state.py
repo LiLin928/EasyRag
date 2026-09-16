@@ -23,7 +23,7 @@ class WorkflowState(TypedDict, total=False):
     loop_stack: list
 
 
-_PATTERN = re.compile(r"\{\{\s*([\w.]+)(?:\[(\d+)\])?(\.\w+)?\s*\}\}")
+_PATTERN = re.compile(r"\{\{\s*([\w-]+)(?:\.([\w-]+))?(\.[\w-]+)?\s*\}\}")
 
 
 def resolve(expr: str, state: dict) -> str:

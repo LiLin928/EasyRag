@@ -173,7 +173,14 @@ def _publish_sync(stream: str, event_type: str, payload: dict):
         import os
 
         redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+        logger.debug(f"[SSE] Connecting to Redis: {redis_url}")
+
         r = redis.from_url(redis_url)
+
+        # 测试连接
+        if not r.ping():
+            logger.error("[SSE] Redis ping failed")
+            return
 
         data = {
             "type": event_type,
@@ -181,10 +188,11 @@ def _publish_sync(stream: str, event_type: str, payload: dict):
             "payload": json.dumps(payload),
         }
 
-        r.xadd(stream, data, maxlen=10000, approximate=True)
-        logger.debug(f"Published event: {event_type} to {stream}")
+        result = r.xadd(stream, data, maxlen=10000, approximate=True)
+        logger.debug(f"[SSE] Published event: {event_type} to {stream}, msg_id: {result}")
+
     except Exception as e:
-        logger.warning(f"Failed to publish event: {e}")
+        logger.error(f"[SSE] Failed to publish event: {e}", exc_info=True)
 
 
 @celery_app.task(
