@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted } from 'vue'
+import { Warning } from '@element-plus/icons-vue'
 import { useToolStore } from '@/stores/tool'
 import { useKnowledgeStore } from '@/stores/knowledge'
 import { useWorkflowListStore } from '@/stores/workflow'
@@ -43,6 +44,24 @@ const selectedSkills = ref<string[]>([])
 
 // 当前激活的 Tab
 const activeTab = ref('tools')
+
+// 加载状态
+const loading = ref({
+  tools: false,
+  docs: false,
+  wfs: false,
+  mcps: false,
+  skills: false
+})
+
+// 错误状态
+const error = ref({
+  tools: null as string | null,
+  docs: null as string | null,
+  wfs: null as string | null,
+  mcps: null as string | null,
+  skills: null as string | null
+})
 
 // 获取工具候选列表
 const toolOptions = computed(() => {
@@ -104,13 +123,61 @@ watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], 
   })
 }, { deep: true })
 
-// 加载所需数据
+// 加载所需数据（添加错误处理）
 onMounted(async () => {
-  await toolStore.loadTools()
-  // 知识库文档已在父组件 AgentConfigDrawer 中加载
-  await workflowListStore.loadWorkflows()
-  await mcpStore.loadMcps()
-  await skillStore.loadSkills()
+  // 并行加载所有数据
+  const loadDataPromises = [
+    (async () => {
+      loading.value.tools = true
+      error.value.tools = null
+      try {
+        await toolStore.loadTools()
+      } catch (e: any) {
+        error.value.tools = e.message || '加载工具失败'
+        console.error('加载工具失败:', e)
+      } finally {
+        loading.value.tools = false
+      }
+    })(),
+    (async () => {
+      loading.value.wfs = true
+      error.value.wfs = null
+      try {
+        await workflowListStore.loadWorkflows()
+      } catch (e: any) {
+        error.value.wfs = e.message || '加载工作流失败'
+        console.error('加载工作流失败:', e)
+      } finally {
+        loading.value.wfs = false
+      }
+    })(),
+    (async () => {
+      loading.value.mcps = true
+      error.value.mcps = null
+      try {
+        await mcpStore.loadMcps()
+      } catch (e: any) {
+        error.value.mcps = e.message || '加载 MCP 失败'
+        console.error('加载 MCP 失败:', e)
+      } finally {
+        loading.value.mcps = false
+      }
+    })(),
+    (async () => {
+      loading.value.skills = true
+      error.value.skills = null
+      try {
+        await skillStore.loadSkills()
+      } catch (e: any) {
+        error.value.skills = e.message || '加载技能失败'
+        console.error('加载技能失败:', e)
+      } finally {
+        loading.value.skills = false
+      }
+    })()
+  ]
+
+  await Promise.all(loadDataPromises)
 })
 
 // 计算总挂载数
@@ -132,6 +199,7 @@ const totalCount = computed(() => {
             multiple
             placeholder="选择要挂载的工具"
             :disabled="readonly"
+            :loading="loading.tools"
             style="width: 100%"
           >
             <el-option
@@ -141,7 +209,13 @@ const totalCount = computed(() => {
               :value="option.value"
             />
           </el-select>
-          <div class="selection-hint">已选择 {{ selectedTools.length }} 个工具</div>
+          <div class="selection-hint">
+            <span v-if="error.tools" class="error-text">
+              <el-icon><Warning /></el-icon> {{ error.tools }}
+            </span>
+            <span v-else-if="loading.tools">加载中...</span>
+            <span v-else>已选择 {{ selectedTools.length }} 个工具</span>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -153,6 +227,7 @@ const totalCount = computed(() => {
             multiple
             placeholder="选择要挂载的知识库文档"
             :disabled="readonly"
+            :loading="loading.docs"
             style="width: 100%"
           >
             <el-option
@@ -162,7 +237,13 @@ const totalCount = computed(() => {
               :value="option.value"
             />
           </el-select>
-          <div class="selection-hint">已选择 {{ selectedDocs.length }} 个文档</div>
+          <div class="selection-hint">
+            <span v-if="error.docs" class="error-text">
+              <el-icon><Warning /></el-icon> {{ error.docs }}
+            </span>
+            <span v-else-if="loading.docs">加载中...</span>
+            <span v-else>已选择 {{ selectedDocs.length }} 个文档</span>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -174,6 +255,7 @@ const totalCount = computed(() => {
             multiple
             placeholder="选择要挂载的工作流"
             :disabled="readonly"
+            :loading="loading.wfs"
             style="width: 100%"
           >
             <el-option
@@ -183,7 +265,13 @@ const totalCount = computed(() => {
               :value="option.value"
             />
           </el-select>
-          <div class="selection-hint">已选择 {{ selectedWfs.length }} 个工作流</div>
+          <div class="selection-hint">
+            <span v-if="error.wfs" class="error-text">
+              <el-icon><Warning /></el-icon> {{ error.wfs }}
+            </span>
+            <span v-else-if="loading.wfs">加载中...</span>
+            <span v-else>已选择 {{ selectedWfs.length }} 个工作流</span>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -195,6 +283,7 @@ const totalCount = computed(() => {
             multiple
             placeholder="选择要挂载的 MCP 服务"
             :disabled="readonly"
+            :loading="loading.mcps"
             style="width: 100%"
           >
             <el-option
@@ -204,7 +293,13 @@ const totalCount = computed(() => {
               :value="option.value"
             />
           </el-select>
-          <div class="selection-hint">已选择 {{ selectedMcps.length }} 个 MCP 服务</div>
+          <div class="selection-hint">
+            <span v-if="error.mcps" class="error-text">
+              <el-icon><Warning /></el-icon> {{ error.mcps }}
+            </span>
+            <span v-else-if="loading.mcps">加载中...</span>
+            <span v-else>已选择 {{ selectedMcps.length }} 个 MCP 服务</span>
+          </div>
         </div>
       </el-tab-pane>
 
@@ -216,6 +311,7 @@ const totalCount = computed(() => {
             multiple
             placeholder="选择要挂载的技能"
             :disabled="readonly"
+            :loading="loading.skills"
             style="width: 100%"
           >
             <el-option
@@ -225,7 +321,13 @@ const totalCount = computed(() => {
               :value="option.value"
             />
           </el-select>
-          <div class="selection-hint">已选择 {{ selectedSkills.length }} 个技能</div>
+          <div class="selection-hint">
+            <span v-if="error.skills" class="error-text">
+              <el-icon><Warning /></el-icon> {{ error.skills }}
+            </span>
+            <span v-else-if="loading.skills">加载中...</span>
+            <span v-else>已选择 {{ selectedSkills.length }} 个技能</span>
+          </div>
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -259,6 +361,16 @@ const totalCount = computed(() => {
   margin-top: 8px;
   font-size: 12px;
   color: #909399;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.error-text {
+  color: #f56c6c;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .summary {
