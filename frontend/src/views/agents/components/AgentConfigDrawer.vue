@@ -50,10 +50,17 @@ const formData = ref({
 const modelOptions = computed(() => {
   const llmModels = settingsStore.models.llm || []
   return llmModels.map(m => ({
-    label: m.name,
+    label: m.name + (m.def ? ' (默认)' : ''),
     value: m.name,
     disabled: !m.enabled
   }))
+})
+
+// 获取默认模型名称
+const defaultModelName = computed(() => {
+  const llmModels = settingsStore.models.llm || []
+  const defaultModel = llmModels.find(m => m.def && m.enabled)
+  return defaultModel?.name || ''
 })
 
 watch(() => props.visible, async (visible) => {
@@ -201,6 +208,17 @@ function handleClose() {
                 :value="option.value"
               />
             </el-select>
+            <el-alert
+              v-if="formData.model && formData.model !== defaultModelName"
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-top: 8px"
+            >
+              <template #title>
+                注意：当前选择了非默认模型，请确保该模型的 API Key 有效
+              </template>
+            </el-alert>
           </el-form-item>
           <el-form-item label="温度">
             <el-slider
