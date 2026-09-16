@@ -38,6 +38,9 @@ async def run_in_sandbox(
     import json
     inputs_json = json.dumps(inputs)
 
+    # OpenSandbox 要求 timeout 至少为 60 秒
+    effective_timeout = max(timeout, 60)
+
     # 创建沙箱
     sandbox = await client.create_sandbox(
         image="python:3.11-slim",
@@ -49,23 +52,39 @@ import sys
 
 # 注入输入参数
 inputs = json.loads('{inputs_json}')
-globals().update(inputs)
 
-# 执行用户代码
+# 执行用户代码（传入全局命名空间）
 try:
-    result = None
-    exec({repr(code)}, {{'__builtins__': __builtins__, 'result': result}})
-    if 'result' in dir():
+    # 创建全局命名空间，包含常用模块
+    exec_globals = {{
+        '__builtins__': __builtins__,
+        'json': json,
+        're': __import__('re'),
+        'math': __import__('math'),
+        'datetime': __import__('datetime'),
+        'Counter': __import__('collections').Counter,
+        'defaultdict': __import__('collections').defaultdict,
+        'inputs': inputs,
+        'result': None,
+    }}
+
+    # 执行代码
+    exec({repr(code)}, exec_globals)
+
+    # 提取结果
+    result = exec_globals.get('result')
+    if result is not None:
         print(json.dumps({{'success': True, 'output': result}}))
     else:
         print(json.dumps({{'success': True, 'output': None}}))
 except Exception as e:
-    print(json.dumps({{'success': False, 'error': str(e)}}))
+    import traceback
+    print(json.dumps({{'success': False, 'error': str(e), 'traceback': traceback.format_exc()}}))
 """
         ],
         env={"PYTHONUNBUFFERED": "1"},
         memory_mb=memory_mb,
-        timeout_seconds=timeout,
+        timeout_seconds=effective_timeout,
     )
 
     # 等待执行完成

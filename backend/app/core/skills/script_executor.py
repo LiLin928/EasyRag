@@ -2,6 +2,7 @@
 
 在 OpenSandbox 中安全执行技能定义的脚本代码。
 """
+import json
 import logging
 from typing import Any, Optional
 
@@ -39,7 +40,12 @@ async def execute_skill_script(
 # 技能脚本: {script_name}
 # 自动生成的执行包装器
 
+# 导入常用模块
 import json
+import re
+import math
+import datetime
+from collections import Counter, defaultdict
 
 # 注入输入参数
 inputs = json.loads('''{json.dumps(inputs)}''')

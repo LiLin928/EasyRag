@@ -193,7 +193,7 @@ async def _resume_execution_async(
 
     # 4. 恢复执行（传入 None 表示继续）
     try:
-        async for event in graph.stream(None, config=config, stream_mode="values"):
+        async for event in graph.astream(None, config=config, stream_mode="values"):
             # 检查状态
             state = await graph.aget_state(config)
 
@@ -475,7 +475,7 @@ async def _execute_with_debug(
     logger.info(f"[Debug] Starting debug execution for {execution_id}")
 
     # 使用 stream 方法执行，支持中断
-    async for event in graph.stream(initial_state, config=config, stream_mode="values"):
+    async for event in graph.astream(initial_state, config=config, stream_mode="values"):
         # 检查状态
         state = await graph.aget_state(config)
 

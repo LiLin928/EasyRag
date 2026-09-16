@@ -136,7 +136,8 @@ class OpenSandboxClient:
         if self._client is None:
             headers = {}
             if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
+                # OpenSandbox 使用特定的头部名称
+                headers["OPEN-SANDBOX-API-KEY"] = self.api_key
 
             self._client = httpx.AsyncClient(
                 base_url=self.base_url,
@@ -229,24 +230,28 @@ class OpenSandboxClient:
         Returns:
             沙箱信息
         """
+        # 构建 image 规范
         payload: dict[str, Any] = {
-            "image": image,
-            "command": command,
-            "timeout_seconds": timeout_seconds,
+            "image": {"uri": image},
+            "entrypoint": command,  # OpenSandbox 使用 entrypoint（数组）
+            "timeout": timeout_seconds,  # OpenSandbox 使用 timeout（不是 timeout_seconds）
+            "resourceLimits": {
+                "cpu": f"{int(cpu * 1000)}m",  # 转换为毫核，如 "1000m"
+                "memory": f"{memory_mb}Mi",  # 转换为 MiB，如 "512Mi"
+            },
         }
 
         if env:
             payload["env"] = env
-        if memory_mb:
-            payload["resources"] = {"memory_mb": memory_mb, "cpu": cpu}
         if metadata:
             payload["metadata"] = metadata
 
         response = await self._request("POST", "/sandboxes", json=payload)
 
+        # OpenSandbox 返回的是 "id" 而不是 "sandbox_id"
         return SandboxInfo(
-            sandbox_id=response["sandbox_id"],
-            status=SandboxState(response["status"]),
+            sandbox_id=response["id"],
+            status=SandboxState(response["status"]["state"]),
         )
 
     @with_retry(max_retries=2, backoff_factor=1.5)
@@ -262,15 +267,15 @@ class OpenSandboxClient:
         response = await self._request("GET", f"/sandboxes/{sandbox_id}")
 
         info = SandboxInfo(
-            sandbox_id=response["sandbox_id"],
-            status=SandboxState(response["status"]),
+            sandbox_id=response["id"],
+            status=SandboxState(response["status"]["state"]),
         )
 
         # 提取退出码和错误信息
         if "exit_code" in response:
             info.exit_code = response["exit_code"]
-        if response.get("error"):
-            info.error = response["error"]
+        if response.get("status", {}).get("message"):
+            info.error = response["status"]["message"]
 
         return info
 
