@@ -83,6 +83,8 @@ async def detail(wid: str, me=Depends(get_current_user)):
 @router.put("/{wid}")
 async def update(wid: str, body: WorkflowUpdate, me=Depends(get_current_user)):
     """更新工作流定义。"""
+    from sqlalchemy.orm.attributes import flag_modified
+
     async with async_session() as s:
         wf = (await s.execute(select(Workflow).where(Workflow.id == wid))).scalar_one_or_none()
         if not wf:
@@ -97,12 +99,18 @@ async def update(wid: str, body: WorkflowUpdate, me=Depends(get_current_user)):
             wf.icon = body.icon
         if body.version is not None:
             wf.current_version = body.version
-        definition = wf.definition or {"nodes": [], "edges": []}
-        if body.nodes is not None:
-            definition["nodes"] = body.nodes
-        if body.edges is not None:
-            definition["edges"] = body.edges
-        wf.definition = definition
+
+        # 更新 definition（需要创建新对象并标记修改）
+        if body.nodes is not None or body.edges is not None:
+            # 创建新的 definition 对象（关键：不能修改现有对象）
+            definition = {
+                "nodes": body.nodes if body.nodes is not None else (wf.definition or {}).get("nodes", []),
+                "edges": body.edges if body.edges is not None else (wf.definition or {}).get("edges", [])
+            }
+            wf.definition = definition
+            # 标记字段已修改（SQLAlchemy 需要这个标记来检测 JSONB 字段修改）
+            flag_modified(wf, "definition")
+
         await s.commit()
         await s.refresh(wf)
     return ok(_out(wf))
