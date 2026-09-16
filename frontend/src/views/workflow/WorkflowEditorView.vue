@@ -253,6 +253,10 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
     const streamUrl = wfApi.getExecutionStreamUrl(executionId)
     const authStore = useAuthStore()
 
+    // 调试日志
+    console.log('[SSE] Connecting to:', streamUrl)
+    console.log('[SSE] Token exists:', !!authStore.token)
+
     const sseResponse = await fetch(streamUrl, {
       headers: {
         'Authorization': `Bearer ${authStore.token}`,
@@ -260,7 +264,12 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
       },
     })
 
+    console.log('[SSE] Response status:', sseResponse.status)
+    console.log('[SSE] Response content-type:', sseResponse.headers.get('content-type'))
+
     if (!sseResponse.ok) {
+      const errorText = await sseResponse.text()
+      console.error('[SSE] Connection failed:', sseResponse.status, errorText)
       throw new Error(`SSE connection failed: ${sseResponse.status}`)
     }
 
@@ -272,12 +281,17 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
     const decoder = new TextDecoder()
     let buffer = ''
 
+    console.log('[SSE] Starting to read stream...')
+
     // 读取 SSE 流
     const readStream = async () => {
       try {
         while (true) {
           const { done, value } = await reader.read()
-          if (done) break
+          if (done) {
+            console.log('[SSE] Stream ended')
+            break
+          }
 
           buffer += decoder.decode(value, { stream: true })
 
@@ -304,22 +318,24 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
             if (data) {
               try {
                 const parsedData = JSON.parse(data)
+                console.log('[SSE] Event received:', eventType, parsedData)
                 handleSSEEvent(eventType, parsedData)
               } catch (e) {
-                console.error('Failed to parse SSE data:', e)
+                console.error('[SSE] Failed to parse data:', e)
               }
             }
           }
         }
       } catch (error) {
-        console.error('SSE stream error:', error)
+        console.error('[SSE] Stream error:', error)
+        ElMessage.error('实时事件流读取失败')
       }
     }
 
     readStream() // 开始读取流
 
   } catch (error: any) {
-    console.error('Execute workflow error:', error)
+    console.error('[SSE] Execute workflow error:', error)
     ElMessage.error('执行失败: ' + (error.response?.data?.message || error.message))
   } finally {
     executing.value = false
