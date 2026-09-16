@@ -23,6 +23,7 @@ export interface Tool {
   enabled: boolean
   params: ToolParam[]
   auth: ToolAuth
+  config?: HttpToolConfig | PythonToolConfig | Record<string, any>  // 工具配置（HTTP/Python等）
   createdAt?: string
 }
 
@@ -37,4 +38,19 @@ export interface ToolTestResult {
   data?: unknown
   error?: string
   duration: number
+}
+
+// HTTP 工具配置
+export interface HttpToolConfig {
+  url: string                    // API 地址
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE'  // HTTP 方法
+  headers?: Record<string, string>  // 请求头
+  timeout?: number              // 超时时间（秒）
+  retryCount?: number           // 重试次数
+}
+
+// Python 工具配置（预留）
+export interface PythonToolConfig {
+  code?: string                 // Python 代码
+  runtime?: string              // 运行时版本
 }
