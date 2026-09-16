@@ -4,6 +4,7 @@ import type { WfNode, OutputParamOption } from '@/types/workflow'
 import { useWorkflowEditorStore } from '@/stores/workflow'
 import { getUpstreamOutputOptions, getAllNodesOutputOptions } from '@/composables/useWorkflowParams'
 import { useToolStore } from '@/stores/tool'
+import { useKnowledgeStore } from '@/stores/knowledge'
 import { useSettingsStore } from '@/stores/settings'
 import type { ToolParam } from '@/types/tool'
 
@@ -20,13 +21,18 @@ const emit = defineEmits<{
 
 const editorStore = useWorkflowEditorStore()
 const toolStore = useToolStore()
+const knowledgeStore = useKnowledgeStore()
 const settingsStore = useSettingsStore()
 
 onMounted(() => {
   if (toolStore.tools.length === 0) {
     toolStore.loadTools()
   }
-  // 加载系统设置中的模型配置
+  // 加载知识库配置
+  if (knowledgeStore.kbList.length === 0) {
+    knowledgeStore.loadKbList()
+  }
+  // 加载模型配置（包括 Embedding 模型）
   if (settingsStore.models.llm.length === 0) {
     settingsStore.loadModels()
   }
