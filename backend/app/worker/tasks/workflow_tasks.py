@@ -43,6 +43,7 @@ def execute_workflow(
     Returns:
         执行结果
     """
+    logger.info(f"[Workflow] Task started", execution_id=execution_id, debug=debug, inputs=inputs)
     stream_key = f"workflow:{execution_id}"
 
     try:

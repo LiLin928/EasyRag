@@ -55,7 +55,10 @@ export function getExecutionDetail(executionId: string): Promise<ExecutionDetail
 }
 
 export function executeWorkflow(id: string, debug = false, inputs?: Record<string, any>): Promise<{ executionId: string }> {
-  return request.post('/workflows/' + id + '/execute', { debug, inputs })
+  console.log('[API] executeWorkflow called with:', { id, debug, inputs })
+  const requestBody = { debug, inputs }
+  console.log('[API] Request body:', JSON.stringify(requestBody))
+  return request.post('/workflows/' + id + '/execute', requestBody)
 }
 
 export function getExecutionStreamUrl(executionId: string): string {

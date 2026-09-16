@@ -47,6 +47,14 @@ async def execute(
     """
     t = (tool.type or "HTTP").strip()
 
+    # 合并默认参数：工具定义中的默认值 + 用户传入的参数
+    merged_args = {}
+    for p in (tool.params or []):
+        param_name = p.get("n")
+        if param_name and p.get("d") is not None:
+            merged_args[param_name] = p["d"]  # 先设置默认值
+    merged_args.update(args)  # 再覆盖用户传入的值
+
     # 检查缓存
     if cache_key:
         cached_result = await _get_cached_result(cache_key)
@@ -56,11 +64,11 @@ async def execute(
 
     try:
         if t == "HTTP":
-            result = await _http(tool, args, timeout)
+            result = await _http(tool, merged_args, timeout)
         elif t == "Python":
-            result = await _python(tool, args, timeout)
+            result = await _python(tool, merged_args, timeout)
         elif t == "内置":
-            result = _builtin(tool, args)
+            result = _builtin(tool, merged_args)
         else:
             result = ToolExecutionResult(
                 success=False,

@@ -132,6 +132,11 @@ def init_worker_process(**kwargs):
     """Celery worker 进程启动时初始化资源"""
     logger.info("[Celery] Worker process initializing...")
 
+    # 设置环境变量标识这是 Celery worker
+    import os
+    os.environ['CELERY_WORKER'] = 'true'
+    logger.info("[Celery] Set CELERY_WORKER=true for NullPool database connections")
+
     # Windows 兼容性：设置正确的事件循环策略
     import sys
     if sys.platform == 'win32':

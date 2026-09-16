@@ -97,6 +97,13 @@ async def enqueue_workflow_task(
                 queue = "low"
 
             # 提交 Celery 任务 (V2 方式)
+            logger.info(
+                "提交 Celery 任务",
+                execution_id=execution_id,
+                debug=debug,
+                priority=priority,
+                queue=queue,
+            )
             celery_app.send_task(
                 "execute_workflow",
                 args=[execution_id, definition, inputs or {}],

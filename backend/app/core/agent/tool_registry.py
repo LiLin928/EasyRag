@@ -94,9 +94,21 @@ async def build_tools(agent: Agent) -> list:
 def _tool_to_structured(t: Tool):
     """将 ORM Tool 转为 LangChain StructuredTool。"""
     from langchain_core.tools import StructuredTool
-    from pydantic import create_model
+    from pydantic import create_model, Field
 
-    fields = {p["n"]: (str, ...) for p in (t.params or [])}
+    # 构建参数模型，包含默认值
+    fields = {}
+    for p in (t.params or []):
+        param_name = p.get("n", "param")
+        param_type = str  # 简化为字符串类型
+        default_value = p.get("d", ...)  # 使用默认值，如果没有则为必填
+
+        # 使用 Field 设置默认值和描述
+        fields[param_name] = (
+            param_type,
+            Field(default=default_value, description=f"参数 {param_name}")
+        )
+
     Args = create_model(f"{t.id}_Args", **fields) if fields else None
 
     async def _run(**kwargs):
