@@ -3,11 +3,12 @@ import { onMounted, onUnmounted, ref, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkflowEditorStore, useWorkflowExecutionStore } from '@/stores/workflow'
+import * as wfApi from '@/api/workflow'
 import WorkflowCanvas from './components/WorkflowCanvas.vue'
 import NodeConfigModal from './components/NodeConfigModal.vue'
 import ExecutionPanel from './components/ExecutionPanel.vue'
 import DebugToolbar from './components/DebugToolbar.vue'
-import type { WfNode, WfEdge } from '@/types/workflow'
+import type { WfNode } from '@/types/workflow'
 import { NODE_TYPES } from '@/types/workflow'
 
 const route = useRoute()
@@ -23,7 +24,6 @@ const selectedNode = ref<WfNode | null>(null)
 
 // 调试控制
 const debugPaused = ref(false)
-const debugResolve = ref<(() => void) | null>(null)
 const debugAbort = ref(false)
 const debugCurrentIndex = ref(0)
 
@@ -334,7 +334,7 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
       ElMessage.error('实时事件流连接失败')
     })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Execute workflow error:', error)
     ElMessage.error('执行失败: ' + (error.response?.data?.message || error.message))
   } finally {

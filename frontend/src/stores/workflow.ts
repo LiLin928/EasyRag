@@ -235,13 +235,19 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
   async function create() {
     const wf = await wfApi.createWorkflow({
       name: name.value,
-      nodes: nodes.value,
-      edges: edges.value
+      description: undefined
     })
     id.value = wf.id
     name.value = wf.name
     status.value = wf.status
     version.value = wf.version
+    // 创建后立即更新节点和边
+    if (nodes.value.length > 0 || edges.value.length > 0) {
+      await wfApi.updateWorkflow(wf.id, {
+        nodes: nodes.value,
+        edges: edges.value
+      })
+    }
     dirty.value = false
     return wf
   }

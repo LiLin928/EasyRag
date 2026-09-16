@@ -366,9 +366,9 @@ function handleDialogUpdate(val: boolean) {
             v-model="form.config.userPrompt"
             type="textarea"
             :rows="3"
-            placeholder="用户提示词，可引用上游变量，如：{{start.query}}"
+            placeholder="用户提示词，可引用上游变量"
           />
-          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+          <div v-pre style="color: #909399; font-size: 12px; margin-top: 4px;">
             使用 {{节点ID.变量名}} 引用上游节点输出，如 {{start.query}}
           </div>
         </el-form-item>
