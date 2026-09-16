@@ -14,8 +14,19 @@ from app.core.redis_streams import publish_event
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
-def execute_workflow(self, execution_id: str, definition: Dict[str, Any], debug: bool = False) -> dict:
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    name="execute_workflow"  # 显式任务名称，确保与调用一致
+)
+def execute_workflow(
+    self,
+    execution_id: str,
+    definition: Dict[str, Any],
+    inputs: Dict[str, Any] = None,
+    debug: bool = False
+) -> dict:
     """
     工作流执行任务
 
@@ -23,6 +34,9 @@ def execute_workflow(self, execution_id: str, definition: Dict[str, Any], debug:
 
     Args:
         execution_id: 执行 ID
+        definition: 工作流定义 {nodes, edges}
+        inputs: 工作流输入参数
+        debug: 是否调试模式
         definition: 工作流定义 {nodes: [...], edges: [...]}
         debug: 是否调试模式
 
@@ -39,7 +53,7 @@ def execute_workflow(self, execution_id: str, definition: Dict[str, Any], debug:
         try:
             # 执行工作流
             result = loop.run_until_complete(
-                _execute_workflow_async(execution_id, definition, debug, stream_key)
+                _execute_workflow_async(execution_id, definition, inputs or {}, debug, stream_key)
             )
             return result
         finally:
@@ -62,6 +76,7 @@ def execute_workflow(self, execution_id: str, definition: Dict[str, Any], debug:
 async def _execute_workflow_async(
     execution_id: str,
     definition: Dict[str, Any],
+    inputs: Dict[str, Any],
     debug: bool,
     stream_key: str
 ) -> dict:
@@ -69,7 +84,8 @@ async def _execute_workflow_async(
     # 1. 发送开始事件
     _publish_sync(stream_key, "execution_started", {
         "execution_id": execution_id,
-        "debug": debug
+        "debug": debug,
+        "inputs": inputs
     })
 
     nodes = definition.get("nodes", [])
@@ -85,11 +101,11 @@ async def _execute_workflow_async(
     builder = GraphBuilder()
     graph = await builder.build(definition, execution_id, debug)
 
-    # 3. 准备初始状态
+    # 3. 准备初始状态（包含输入参数）
     initial_state = {
         "execution_id": execution_id,
         "workflow_id": "",  # 从上下文获取
-        "inputs": {},
+        "inputs": inputs,  # 传入用户输入
         "variables": {},
         "node_outputs": {},
         "node_timings": {},
@@ -171,7 +187,12 @@ def _publish_sync(stream: str, event_type: str, payload: dict):
         logger.warning(f"Failed to publish event: {e}")
 
 
-@celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
+@celery_app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=30,
+    name="execute_node_task"  # 显式任务名称
+)
 def execute_node_task(self, execution_id: str, node: Dict[str, Any]) -> dict:
     """
     执行单个工作流节点（用于调试或手动执行）
