@@ -136,15 +136,26 @@ async def _http(
                 duration_ms=0,
             )
 
-    # 请求体
+    # 请求参数和请求体
     body_type = cfg.get("bodyType", "json")
+
+    # GET/DELETE: 参数作为查询参数
+    query_params = args if method in ("GET", "DELETE") else None
+
+    # POST/PUT/PATCH: 参数作为请求体
     json_body = args if body_type == "json" and method in ("POST", "PUT", "PATCH") else None
 
     t0 = time.perf_counter()
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.request(method, url, headers=headers, json=json_body)
+            resp = await client.request(
+                method,
+                url,
+                headers=headers,
+                params=query_params,
+                json=json_body
+            )
 
         duration_ms = round((time.perf_counter() - t0) * 1000, 1)
         ok_ = resp.status_code < 400
