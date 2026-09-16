@@ -185,14 +185,46 @@ async def detail(eid: str, me=Depends(get_current_user)):
 
 @router.post("/{eid}/debug/continue")
 async def debug_continue(eid: str, me=Depends(get_current_user)):
-    """调试继续执行（当前为占位实现，实际执行方式取决于工作流配置）。
+    """调试继续执行：从暂停点恢复执行到下一个中断点或完成。
 
-    注：当前调试模式会一次性执行完所有节点，只是日志更详细。
-    后续版本将支持逐步调试。
+    仅当执行状态为 paused 时可调用。
     """
-    # 当前简化实现：直接返回成功
-    # 实际的执行流程由 workflow_tasks 控制
+    from app.core.celery_app import celery_app
+
+    async with async_session() as s:
+        # 1. 获取执行记录
+        exec_record = (
+            await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == eid))
+        ).scalar_one_or_none()
+        if not exec_record:
+            raise BizException(ErrorCode.NOT_FOUND, "执行记录不存在")
+
+        # 2. 检查状态
+        if exec_record.status != "paused":
+            raise BizException(ErrorCode.BAD_REQUEST, f"执行状态为 {exec_record.status}，仅 paused 状态可继续")
+
+        # 3. 获取工作流定义
+        wf = (
+            await s.execute(select(Workflow).where(Workflow.id == exec_record.workflow_id))
+        ).scalar_one_or_none()
+        if not wf:
+            raise BizException(ErrorCode.NOT_FOUND, "工作流不存在")
+
+        # 4. 更新状态为 running
+        exec_record.status = "running"
+        await s.commit()
+
+        definition = wf.definition or {}
+
+    # 5. 提交恢复任务
+    celery_app.send_task(
+        "resume_workflow_execution",
+        args=[eid, definition, True],  # debug=True
+        queue="workflow",
+        task_id=f"resume-{eid}",
+    )
+
     return ok({
         "success": True,
-        "message": "调试模式当前会执行完所有节点，请查看日志了解执行详情"
+        "message": "已提交继续执行任务"
     })

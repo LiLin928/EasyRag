@@ -52,9 +52,16 @@ class GraphBuilder:
             logger.error(f"[GraphBuilder] Failed to initialize checkpointer: {e}", exc_info=True)
             raise
 
-        interrupt = ["*"] if debug else [
-            n["id"] for n in nodes if n["type"] == "human"
-        ]
+        # 设置中断点
+        if debug:
+            # 调试模式：在所有业务节点前中断（不包括 start/end 虚拟节点）
+            interrupt = [n["id"] for n in nodes if n["type"] not in ("start", "end")]
+            logger.info(f"[GraphBuilder] Debug mode: interrupting before all business nodes: {interrupt}")
+        else:
+            # 正常模式：只在 human 节点前中断（需要人工审核）
+            interrupt = [n["id"] for n in nodes if n["type"] == "human"]
+            if interrupt:
+                logger.info(f"[GraphBuilder] Normal mode: interrupting before human nodes: {interrupt}")
 
         logger.info(f"[GraphBuilder] Compiling graph with interrupt_before={interrupt}")
 

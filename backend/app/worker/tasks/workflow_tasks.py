@@ -6,12 +6,12 @@ import asyncio
 from typing import List, Dict, Any
 from celery import chain, group, chord
 from celery.exceptions import MaxRetriesExceededError
-import logging
+import structlog
 
 from app.core.celery_app import celery_app
 from app.core.redis_streams import publish_event
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 @celery_app.task(
@@ -85,6 +85,192 @@ def execute_workflow(
         raise
 
 
+@celery_app.task(
+    bind=True,
+    max_retries=2,
+    default_retry_delay=30,
+    name="resume_workflow_execution"  # 显式任务名称
+)
+def resume_workflow_execution(
+    self,
+    execution_id: str,
+    definition: Dict[str, Any],
+    debug: bool = True
+) -> dict:
+    """
+    恢复暂停的工作流执行
+
+    从 checkpointer 恢复状态，继续执行到下一个中断点或完成。
+
+    Args:
+        execution_id: 执行 ID
+        definition: 工作流定义 {nodes, edges}
+        debug: 是否调试模式（默认 True）
+
+    Returns:
+        执行结果
+    """
+    logger.info(f"[Workflow] Resume task started", execution_id=execution_id, debug=debug)
+    stream_key = f"workflow:{execution_id}"
+
+    try:
+        # Windows 兼容性：设置事件循环策略
+        import sys
+        if sys.platform == 'win32':
+            from asyncio import WindowsSelectorEventLoopPolicy
+            asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+
+        # 创建事件循环
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            # 恢复执行
+            result = loop.run_until_complete(
+                _resume_execution_async(execution_id, definition, debug, stream_key)
+            )
+            return result
+        finally:
+            # 清理：关闭事件循环
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:
+                pass
+            loop.close()
+
+    except Exception as exc:
+        logger.error(f"Workflow resume failed: {execution_id}, error={exc}")
+
+        _publish_sync(stream_key, "execution_error", {
+            "execution_id": execution_id,
+            "error": str(exc)
+        })
+
+        if self.request.retries < self.max_retries:
+            raise self.retry(exc=exc, countdown=30)
+
+        raise
+
+
+async def _resume_execution_async(
+    execution_id: str,
+    definition: Dict[str, Any],
+    debug: bool,
+    stream_key: str
+) -> dict:
+    """
+    异步恢复工作流执行
+
+    从 checkpointer 恢复状态，继续执行到下一个中断点或完成。
+    """
+    from datetime import datetime
+    from sqlalchemy import select
+    from app.db.session import async_session
+    from app.models.workflow import WorkflowExecution
+    from app.core.engine.graph_builder import GraphBuilder
+
+    logger.info(f"[Resume] Resuming execution {execution_id}")
+
+    # 1. 推送恢复事件
+    _publish_sync(stream_key, "execution_resumed", {
+        "execution_id": execution_id
+    })
+
+    # 2. 构建图（使用相同的配置）
+    try:
+        builder = GraphBuilder()
+        graph = await builder.build(definition, execution_id, debug)
+        logger.info(f"[Resume] Graph rebuilt successfully for execution {execution_id}")
+    except Exception as e:
+        logger.error(f"[Resume] Failed to rebuild graph: {e}", exc_info=True)
+        raise
+
+    # 3. 获取当前状态
+    config = {"configurable": {"thread_id": execution_id}}
+    current_state = await graph.aget_state(config)
+
+    logger.info(f"[Resume] Current state: next={current_state.next}")
+
+    # 4. 恢复执行（传入 None 表示继续）
+    try:
+        async for event in graph.stream(None, config=config, stream_mode="values"):
+            # 检查状态
+            state = await graph.aget_state(config)
+
+            logger.debug(f"[Resume] Current state: next={state.next}")
+
+            # 如果有 next 节点，说明在下一个中断点
+            if state.next:
+                next_node = state.next[0]
+                logger.info(f"[Resume] Execution paused at breakpoint, next_node={next_node}")
+
+                # 推送暂停事件
+                _publish_sync(stream_key, "execution_paused", {
+                    "execution_id": execution_id,
+                    "node_id": next_node,
+                    "reason": "debug_breakpoint",
+                    "state": state.values
+                })
+
+                # 更新数据库状态为 paused
+                async with async_session() as s:
+                    exec_record = (
+                        await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == execution_id))
+                    ).scalar_one_or_none()
+                    if exec_record:
+                        exec_record.status = "paused"
+                        exec_record.completed_at = datetime.utcnow()
+                        await s.commit()
+
+                # 返回暂停状态
+                return {
+                    "execution_id": execution_id,
+                    "status": "paused",
+                    "next_node": next_node,
+                    "state": state.values
+                }
+
+        # 执行完成
+        final_state = await graph.aget_state(config)
+
+        result = {
+            "execution_id": execution_id,
+            "status": "completed",
+            "final_state": {
+                "node_outputs": final_state.values.get("node_outputs", {}),
+                "status": final_state.values.get("status", "completed"),
+            }
+        }
+
+        _publish_sync(stream_key, "execution_complete", {
+            "execution_id": execution_id,
+            "success": True,
+            "total_duration_ms": 0,
+            "result": result
+        })
+
+        # 更新数据库状态为 completed
+        async with async_session() as s:
+            exec_record = (
+                await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == execution_id))
+            ).scalar_one_or_none()
+            if exec_record:
+                exec_record.status = "completed"
+                exec_record.completed_at = datetime.utcnow()
+                await s.commit()
+
+        logger.info(f"[Resume] Execution completed: {execution_id}")
+        return result
+
+    except Exception as exc:
+        logger.error(f"[Resume] Execution failed: {exc}", exc_info=True)
+        _publish_sync(stream_key, "execution_error", {
+            "execution_id": execution_id,
+            "error": str(exc)
+        })
+        raise
+
+
 async def _execute_workflow_async(
     execution_id: str,
     definition: Dict[str, Any],
@@ -136,49 +322,14 @@ async def _execute_workflow_async(
         config = {"configurable": {"thread_id": execution_id}}
         logger.info(f"[Workflow] Starting execution {execution_id} with config {config}, debug={debug}")
 
-        # 使用 astream_events 执行工作流
-        async for event in graph.astream_events(initial_state, config=config, version="v2"):
-            kind = event.get("event")
-            name = event.get("name", "")
-            data = event.get("data", {})
+        # 根据是否调试模式选择不同的执行方式
+        if debug:
+            # 调试模式：逐步执行，支持中断
+            result = await _execute_with_debug(graph, initial_state, config, stream_key, execution_id)
+        else:
+            # 正常模式：一次性执行完成
+            result = await _execute_normal(graph, initial_state, config, stream_key, execution_id)
 
-            logger.debug(f"[Workflow] Received event: kind={kind}, name={name}")
-
-            # 发布节点事件
-            if kind == "on_chain_start":
-                _publish_sync(stream_key, "node_start", {
-                    "execution_id": execution_id,
-                    "node_id": name,
-                    "node_name": name,
-                })
-            elif kind == "on_chain_end":
-                _publish_sync(stream_key, "node_complete", {
-                    "execution_id": execution_id,
-                    "node_id": name,
-                    "output": str(data.get("output", ""))[:500],
-                    "status": "completed",
-                })
-
-        # 5. 获取最终状态
-        final_state = await graph.aget_state(config)
-
-        result = {
-            "execution_id": execution_id,
-            "status": "completed",
-            "final_state": {
-                "node_outputs": final_state.values.get("node_outputs", {}),
-                "status": final_state.values.get("status", "completed"),
-            }
-        }
-
-        _publish_sync(stream_key, "execution_complete", {
-            "execution_id": execution_id,
-            "success": True,
-            "total_duration_ms": 0,  # TODO: 计算实际耗时
-            "result": result
-        })
-
-        logger.info(f"Workflow execution completed: {execution_id}")
         return result
 
     except Exception as exc:
@@ -299,4 +450,146 @@ async def _execute_node_async(execution_id: str, node: Dict[str, Any], stream_ke
         "status": "completed",
     })
 
+    return result
+
+
+async def _execute_with_debug(
+    graph,
+    initial_state: dict,
+    config: dict,
+    stream_key: str,
+    execution_id: str
+) -> dict:
+    """
+    调试模式执行：逐步执行，在中断点暂停
+
+    使用 graph.stream() 方法，检测中断状态。
+    如果在中断点，推送暂停事件并返回。
+    前端调用 debugContinue 时，启动新任务恢复执行。
+    """
+    from datetime import datetime
+    from sqlalchemy import select
+    from app.db.session import async_session
+    from app.models.workflow import WorkflowExecution
+
+    logger.info(f"[Debug] Starting debug execution for {execution_id}")
+
+    # 使用 stream 方法执行，支持中断
+    async for event in graph.stream(initial_state, config=config, stream_mode="values"):
+        # 检查状态
+        state = await graph.aget_state(config)
+
+        logger.debug(f"[Debug] Current state: next={state.next}, values={state.values}")
+
+        # 如果有 next 节点，说明在中断点
+        if state.next:
+            next_node = state.next[0]
+            logger.info(f"[Debug] Execution paused at breakpoint, next_node={next_node}")
+
+            # 推送暂停事件
+            _publish_sync(stream_key, "execution_paused", {
+                "execution_id": execution_id,
+                "node_id": next_node,
+                "reason": "debug_breakpoint",
+                "state": state.values
+            })
+
+            # 更新数据库状态为 paused
+            async with async_session() as s:
+                exec_record = (
+                    await s.execute(select(WorkflowExecution).where(WorkflowExecution.id == execution_id))
+                ).scalar_one_or_none()
+                if exec_record:
+                    exec_record.status = "paused"
+                    exec_record.completed_at = datetime.utcnow()
+                    await s.commit()
+
+            # 返回暂停状态
+            return {
+                "execution_id": execution_id,
+                "status": "paused",
+                "next_node": next_node,
+                "state": state.values
+            }
+
+    # 执行完成
+    final_state = await graph.aget_state(config)
+
+    result = {
+        "execution_id": execution_id,
+        "status": "completed",
+        "final_state": {
+            "node_outputs": final_state.values.get("node_outputs", {}),
+            "status": final_state.values.get("status", "completed"),
+        }
+    }
+
+    _publish_sync(stream_key, "execution_complete", {
+        "execution_id": execution_id,
+        "success": True,
+        "total_duration_ms": 0,
+        "result": result
+    })
+
+    logger.info(f"[Debug] Execution completed: {execution_id}")
+    return result
+
+
+async def _execute_normal(
+    graph,
+    initial_state: dict,
+    config: dict,
+    stream_key: str,
+    execution_id: str
+) -> dict:
+    """
+    正常模式执行：一次性执行完成
+
+    使用 astream_events 方法，流式输出事件。
+    """
+    logger.info(f"[Normal] Starting normal execution for {execution_id}")
+
+    # 使用 astream_events 执行工作流
+    async for event in graph.astream_events(initial_state, config=config, version="v2"):
+        kind = event.get("event")
+        name = event.get("name", "")
+        data = event.get("data", {})
+
+        logger.debug(f"[Normal] Received event: kind={kind}, name={name}")
+
+        # 发布节点事件
+        if kind == "on_chain_start":
+            _publish_sync(stream_key, "node_start", {
+                "execution_id": execution_id,
+                "node_id": name,
+                "node_name": name,
+            })
+        elif kind == "on_chain_end":
+            _publish_sync(stream_key, "node_complete", {
+                "execution_id": execution_id,
+                "node_id": name,
+                "output": str(data.get("output", ""))[:500],
+                "status": "completed",
+            })
+
+    # 获取最终状态
+    final_state = await graph.aget_state(config)
+
+    result = {
+        "execution_id": execution_id,
+        "status": "completed",
+        "final_state": {
+            "node_outputs": final_state.values.get("node_outputs", {}),
+            "status": final_state.values.get("status", "completed"),
+        }
+    }
+
+    _publish_sync(stream_key, "execution_complete", {
+        "execution_id": execution_id,
+        "success": True,
+        "total_duration_ms": 0,
+        "result": result
+    })
+
+    logger.info(f"[Normal] Execution completed: {execution_id}")
     return result
