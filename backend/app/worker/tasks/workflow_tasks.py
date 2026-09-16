@@ -191,20 +191,30 @@ async def _resume_execution_async(
 
     logger.info(f"[Resume] Current state: next={current_state.next}")
 
-    # 4. 恢复执行（传入 None 表示继续）
+    # 4. 恢复执行（传入 None 表示继续，stream_mode="updates" 监听节点完成）
     try:
-        async for event in graph.astream(None, config=config, stream_mode="values"):
-            # 检查状态
-            state = await graph.aget_state(config)
+        async for event in graph.astream(None, config=config, stream_mode="updates"):
+            # event 格式：{'node_id': output}，表示节点已执行完成
+            # 处理节点完成事件
+            for node_id, output in event.items():
+                logger.info(f"[Resume] Node completed: {node_id}")
 
+                _publish_sync(stream_key, "node_complete", {
+                    "execution_id": execution_id,
+                    "node_id": node_id,
+                    "output": str(output)[:500] if output else "",
+                    "status": "completed",
+                })
+
+            # 检查是否还有下一个中断点
+            state = await graph.aget_state(config)
             logger.debug(f"[Resume] Current state: next={state.next}")
 
-            # 如果有 next 节点，说明在下一个中断点
             if state.next:
+                # 还有下一个节点，在执行前暂停
                 next_node = state.next[0]
-                logger.info(f"[Resume] Execution paused at breakpoint, next_node={next_node}")
+                logger.info(f"[Resume] Execution paused before next node: {next_node}")
 
-                # 推送暂停事件
                 _publish_sync(stream_key, "execution_paused", {
                     "execution_id": execution_id,
                     "node_id": next_node,
@@ -474,19 +484,29 @@ async def _execute_with_debug(
 
     logger.info(f"[Debug] Starting debug execution for {execution_id}")
 
-    # 使用 stream 方法执行，支持中断
-    async for event in graph.astream(initial_state, config=config, stream_mode="values"):
-        # 检查状态
+    # 使用 astream 方法执行，支持中断（stream_mode="updates" 监听节点完成）
+    async for event in graph.astream(initial_state, config=config, stream_mode="updates"):
+        # event 格式：{'node_id': output}，表示节点已执行完成
+        # 处理节点完成事件
+        for node_id, output in event.items():
+            logger.info(f"[Debug] Node completed: {node_id}")
+
+            _publish_sync(stream_key, "node_complete", {
+                "execution_id": execution_id,
+                "node_id": node_id,
+                "output": str(output)[:500] if output else "",
+                "status": "completed",
+            })
+
+        # 检查是否还有下一个中断点
         state = await graph.aget_state(config)
+        logger.debug(f"[Debug] Current state: next={state.next}")
 
-        logger.debug(f"[Debug] Current state: next={state.next}, values={state.values}")
-
-        # 如果有 next 节点，说明在中断点
         if state.next:
+            # 还有下一个节点，在执行前暂停
             next_node = state.next[0]
-            logger.info(f"[Debug] Execution paused at breakpoint, next_node={next_node}")
+            logger.info(f"[Debug] Execution paused before next node: {next_node}")
 
-            # 推送暂停事件
             _publish_sync(stream_key, "execution_paused", {
                 "execution_id": execution_id,
                 "node_id": next_node,
