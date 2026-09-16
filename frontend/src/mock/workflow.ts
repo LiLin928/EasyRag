@@ -451,8 +451,8 @@ export function handleWorkflowMock(url: string, method: string, data: any): any 
       description: data.description,
       status: 'draft',
       version: 1,
-      nodes: [],
-      edges: [],
+      nodes: data.nodes || [],
+      edges: data.edges || [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }

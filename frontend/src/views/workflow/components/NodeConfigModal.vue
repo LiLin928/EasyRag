@@ -4,6 +4,7 @@ import type { WfNode, OutputParamOption } from '@/types/workflow'
 import { useWorkflowEditorStore } from '@/stores/workflow'
 import { getUpstreamOutputOptions, getAllNodesOutputOptions } from '@/composables/useWorkflowParams'
 import { useToolStore } from '@/stores/tool'
+import { useSettingsStore } from '@/stores/settings'
 import type { ToolParam } from '@/types/tool'
 
 const props = defineProps<{
@@ -19,10 +20,15 @@ const emit = defineEmits<{
 
 const editorStore = useWorkflowEditorStore()
 const toolStore = useToolStore()
+const settingsStore = useSettingsStore()
 
 onMounted(() => {
   if (toolStore.tools.length === 0) {
     toolStore.loadTools()
+  }
+  // 加载系统设置中的模型配置
+  if (settingsStore.models.llm.length === 0) {
+    settingsStore.loadModels()
   }
 })
 
@@ -78,6 +84,22 @@ const showHttpConfig = computed(() => props.node?.type === 'http')
 const showToolConfig = computed(() => props.node?.type === 'tool')
 const showLoopConfig = computed(() => props.node?.type === 'loop')
 const showLoopEndConfig = computed(() => props.node?.type === 'loop_end')
+
+// ===== LLM 节点：从系统设置获取模型列表 =====
+const enabledLLMModels = computed(() => {
+  return settingsStore.models.llm.filter(m => m.enabled !== false)
+})
+
+// LLM 输出变量预设选项
+const llmOutputPresets = [
+  { label: '文本内容 (content)', value: 'content', desc: 'LLM 生成的文本内容' },
+  { label: '完整输出对象', value: '', desc: '包含 content、tokens 等元数据' },
+  { label: 'Token 数量 (tokens)', value: 'tokens', desc: '消耗的 token 数量' },
+  { label: '模型名称 (model)', value: 'model', desc: '使用的模型名称' }
+]
+
+// 判断是否为 LLM 节点输出变量配置
+const isLLMOutputDef = computed(() => props.node?.type === 'llm' && showOutputDef.value)
 
 // ===== 工具节点：从系统工具库选择 =====
 const enabledTools = computed(() => toolStore.tools.filter(t => t.enabled))
@@ -146,6 +168,12 @@ function addOutputVar() {
 }
 function removeOutputVar(index: number) {
   form.value.outputVariables.splice(index, 1)
+}
+// LLM 节点：快速添加预设输出变量
+function addPresetOutput(source: string, label: string) {
+  // 提取变量名（去掉括号内容）
+  const name = label.replace(/\s*\(.*?\)/, '').replace(/\s+/g, '_').toLowerCase()
+  form.value.outputVariables.push({ name, source })
 }
 // 开始节点输入参数
 function addStartInput() {
@@ -252,12 +280,22 @@ function handleDialogUpdate(val: boolean) {
       <template v-if="showModelSelect">
         <el-divider content-position="left">LLM 配置</el-divider>
         <el-form-item label="模型">
-          <el-select v-model="form.config.model" placeholder="选择模型">
-            <el-option label="GPT-4" value="gpt-4" />
-            <el-option label="GPT-3.5 Turbo" value="gpt-3.5-turbo" />
-            <el-option label="Claude 3" value="claude-3" />
-            <el-option label="Qwen-Max" value="qwen-max" />
+          <el-select v-model="form.config.model" placeholder="选择模型" filterable style="width: 100%">
+            <el-option
+              v-for="model in enabledLLMModels"
+              :key="model.name"
+              :label="model.name + (model.def ? ' (默认)' : '')"
+              :value="model.name"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ model.name }}</span>
+                <el-tag v-if="model.def" type="success" size="small">默认</el-tag>
+              </div>
+            </el-option>
           </el-select>
+          <div v-if="enabledLLMModels.length === 0" style="color: #909399; font-size: 12px; margin-top: 4px;">
+            暂无可用模型，请先在系统设置中配置
+          </div>
         </el-form-item>
         <el-form-item label="系统提示">
           <el-input v-model="form.config.systemPrompt" type="textarea" :rows="3" placeholder="系统提示词" />
@@ -531,11 +569,54 @@ function handleDialogUpdate(val: boolean) {
       <!-- ===== 输出变量定义 ===== -->
       <template v-if="showOutputDef">
         <el-divider content-position="left">输出变量定义</el-divider>
-        <div v-for="(item, idx) in form.outputVariables" :key="'ov-' + idx" class="param-row">
-          <el-input v-model="item.name" placeholder="变量名" style="width: 140px" />
-          <el-input v-model="item.source" placeholder="提取路径(如 content)" style="flex: 1" />
-          <el-button type="danger" link @click="removeOutputVar(idx)">删除</el-button>
-        </div>
+
+        <!-- LLM 节点：预设输出选项 -->
+        <template v-if="isLLMOutputDef">
+          <el-alert type="info" :closable="false" style="margin-bottom: 12px">
+            <template #title>
+              <strong>快速选择</strong>
+            </template>
+            <div style="margin-top: 8px;">
+              <el-button
+                v-for="preset in llmOutputPresets"
+                :key="preset.value"
+                size="small"
+                style="margin-right: 8px; margin-bottom: 8px;"
+                @click="addPresetOutput(preset.value, preset.label)"
+              >
+                {{ preset.label }}
+              </el-button>
+            </div>
+          </el-alert>
+
+          <div v-for="(item, idx) in form.outputVariables" :key="'ov-' + idx" class="param-row">
+            <el-input v-model="item.name" placeholder="变量名" style="width: 140px" />
+            <el-select v-model="item.source" placeholder="选择输出字段" filterable style="flex: 1" clearable>
+              <el-option
+                v-for="preset in llmOutputPresets"
+                :key="preset.value"
+                :label="preset.label"
+                :value="preset.value"
+              >
+                <div>
+                  <div>{{ preset.label }}</div>
+                  <div style="font-size: 12px; color: #909399;">{{ preset.desc }}</div>
+                </div>
+              </el-option>
+            </el-select>
+            <el-button type="danger" link @click="removeOutputVar(idx)">删除</el-button>
+          </div>
+        </template>
+
+        <!-- 其他节点：通用输出定义 -->
+        <template v-else>
+          <div v-for="(item, idx) in form.outputVariables" :key="'ov-' + idx" class="param-row">
+            <el-input v-model="item.name" placeholder="变量名" style="width: 140px" />
+            <el-input v-model="item.source" placeholder="提取路径(如 content)" style="flex: 1" />
+            <el-button type="danger" link @click="removeOutputVar(idx)">删除</el-button>
+          </div>
+        </template>
+
         <el-button plain style="width: 100%; margin-top: 8px" @click="addOutputVar">+ 添加输出变量</el-button>
       </template>
     </el-form>

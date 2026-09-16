@@ -83,10 +83,19 @@ function handleBack() {
 }
 
 async function handleSave() {
+  // 如果是新工作流，先创建
   if (!store.id) {
-    ElMessage.warning('请先保存流程')
+    try {
+      const wf = await store.create()
+      router.replace('/workflows/editor/' + wf.id)
+      ElMessage.success('创建成功')
+    } catch (error) {
+      ElMessage.error('创建失败')
+    }
     return
   }
+
+  // 更新已存在的工作流
   saving.value = true
   try {
     await store.save()
@@ -99,10 +108,18 @@ async function handleSave() {
 }
 
 async function handlePublish() {
+  // 如果是新工作流，先创建并保存
   if (!store.id) {
-    ElMessage.warning('请先保存流程')
-    return
+    try {
+      const wf = await store.create()
+      router.replace('/workflows/editor/' + wf.id)
+      // 创建成功后继续发布
+    } catch (error) {
+      ElMessage.error('创建失败')
+      return
+    }
   }
+
   publishing.value = true
   try {
     await store.publish()
@@ -139,9 +156,16 @@ function handleAutoLayout() {
 
 // 检查并显示开始节点输入弹窗
 async function handleExecute(debug: boolean) {
+  // 如果是新工作流，先创建并保存
   if (!store.id) {
-    ElMessage.warning('请先保存流程')
-    return
+    try {
+      const wf = await store.create()
+      router.replace('/workflows/editor/' + wf.id)
+      // 创建成功后继续执行
+    } catch (error) {
+      ElMessage.error('创建失败')
+      return
+    }
   }
   
   // 如果有开始节点输入参数，显示弹窗

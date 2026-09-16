@@ -92,7 +92,7 @@ onEdgesChange((changes) => {
 })
 
 function handleDrop(event: DragEvent) {
-  const nodeType = event.dataTransfer?.getData('nodeType')
+  const nodeType = event.dataTransfer?.getData('application/vue-flow')
   if (!nodeType) return
   
   const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()

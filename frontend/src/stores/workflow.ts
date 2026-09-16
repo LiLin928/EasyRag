@@ -232,6 +232,20 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
     dirty.value = true
   }
 
+  async function create() {
+    const wf = await wfApi.createWorkflow({
+      name: name.value,
+      nodes: nodes.value,
+      edges: edges.value
+    })
+    id.value = wf.id
+    name.value = wf.name
+    status.value = wf.status
+    version.value = wf.version
+    dirty.value = false
+    return wf
+  }
+
   async function save() {
     if (!id.value) return
     await wfApi.updateWorkflow(id.value, {
@@ -276,7 +290,7 @@ export const useWorkflowEditorStore = defineStore('workflowEditor', () => {
 
   return {
     id, name, status, version, dirty, nodes, edges, undoStack, selectedNodeId,
-    addNode, updateNode, removeNode, addEdge, removeEdge, insertNodeBetween, markDirty, undo, save, publish, load, toDefinition, fromDefinition
+    addNode, updateNode, removeNode, addEdge, removeEdge, insertNodeBetween, markDirty, undo, create, save, publish, load, toDefinition, fromDefinition
   }
 })
 
