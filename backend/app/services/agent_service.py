@@ -50,7 +50,7 @@ class AgentService:
                 from langgraph.prebuilt import create_react_agent
 
                 from app.core.agent.memory import get_checkpointer
-                from app.core.agent.tool_registry import build_tools
+                from app.core.agent.tool_registry_lazy import build_tools
 
                 # 构建 React Agent
                 with traced_span("agent.build_react", attributes={"model": agent.model}):
@@ -60,8 +60,9 @@ class AgentService:
                         temperature=agent.temp,
                         max_tokens=int(agent.maxtok) if agent.maxtok else None
                     )
-                    tools = await build_tools(agent)
-                    logger.info(f"[Agent] Agent {agent.name} initialized with {len(tools)} tools")
+                    # 启用延迟加载 MCP，提升启动速度
+                    tools = await build_tools(agent, lazy_mcp=True)
+                    logger.info(f"[Agent] Agent {agent.name} initialized with {len(tools)} tools (lazy MCP loading enabled)")
 
                     # 构造系统提示词
                     from langchain_core.messages import SystemMessage
