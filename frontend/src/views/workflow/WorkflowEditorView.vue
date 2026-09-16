@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, computed } from 'vue'
+import { onMounted, onUnmounted, ref, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkflowEditorStore, useWorkflowExecutionStore } from '@/stores/workflow'
 import WorkflowCanvas from './components/WorkflowCanvas.vue'
 import NodeConfigModal from './components/NodeConfigModal.vue'
@@ -76,9 +76,46 @@ onMounted(async () => {
       router.push('/workflows')
     }
   }
+
+  // 添加页面关闭提示
+  window.addEventListener('beforeunload', handleBeforeUnload)
 })
 
-function handleBack() {
+onUnmounted(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
+
+function handleBeforeUnload(e: BeforeUnloadEvent) {
+  if (store.dirty) {
+    e.preventDefault()
+    e.returnValue = '工作流尚未保存，确定要离开吗？'
+    return e.returnValue
+  }
+}
+
+async function handleBack() {
+  // 如果有未保存的修改，提示用户
+  if (store.dirty) {
+    try {
+      await ElMessageBox.confirm(
+        '工作流尚未保存，是否保存？',
+        '提示',
+        {
+          confirmButtonText: '保存',
+          cancelButtonText: '不保存',
+          type: 'warning'
+        }
+      )
+      // 用户选择保存
+      await store.save()
+      ElMessage.success('保存成功')
+    } catch (action) {
+      // 用户选择不保存或关闭弹窗
+      if (action !== 'cancel') {
+        return  // 用户关闭了弹窗，不离开页面
+      }
+    }
+  }
   router.push('/workflows')
 }
 
@@ -340,8 +377,19 @@ function handleDragStart(e: DragEvent, nodeType: string) {
   e.dataTransfer!.effectAllowed = 'move'
 }
 
-function handleNodeSave(node: WfNode) {
-  store.updateNode(node.id, node)
+async function handleNodeSave(node: WfNode) {
+  store.updateNode(node.id, node)  // updateNode 内部会调用 markDirty()
+
+  // 自动保存到后端
+  if (store.id) {
+    try {
+      await store.save()
+      ElMessage.success('节点配置已保存')
+    } catch (error) {
+      ElMessage.error('节点配置保存失败')
+      console.error('Save node config failed:', error)
+    }
+  }
 }
 
 function handleNodeConfigClose() {
