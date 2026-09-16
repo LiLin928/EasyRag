@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkflowEditorStore, useWorkflowExecutionStore } from '@/stores/workflow'
+import { useAuthStore } from '@/stores/auth'
 import * as wfApi from '@/api/workflow'
 import WorkflowCanvas from './components/WorkflowCanvas.vue'
 import NodeConfigModal from './components/NodeConfigModal.vue'
@@ -248,30 +249,103 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
     // 保存当前执行 ID
     execStore.execId = executionId
 
-    // 监听 SSE 事件流
+    // 使用 Fetch API 连接 SSE（支持 Authorization）
     const streamUrl = wfApi.getExecutionStreamUrl(executionId)
-    const eventSource = new EventSource(streamUrl)
+    const authStore = useAuthStore()
 
-    eventSource.addEventListener('execution_start', (event) => {
-      const data = JSON.parse(event.data)
-      execStore.addLog('workflow', 'info', `开始执行工作流，共 ${data.total_nodes} 个节点`)
+    const sseResponse = await fetch(streamUrl, {
+      headers: {
+        'Authorization': `Bearer ${authStore.token}`,
+        'Accept': 'text/event-stream',
+      },
     })
 
-    eventSource.addEventListener('node_start', (event) => {
-      const data = JSON.parse(event.data)
+    if (!sseResponse.ok) {
+      throw new Error(`SSE connection failed: ${sseResponse.status}`)
+    }
+
+    const reader = sseResponse.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+
+    // 读取 SSE 流
+    const readStream = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // 解析 SSE 事件
+          const events = buffer.split('\n\n')
+          buffer = events.pop() || ''
+
+          for (const eventStr of events) {
+            if (!eventStr.trim()) continue
+
+            const lines = eventStr.split('\n')
+            let eventType = 'message'
+            let data = ''
+
+            for (const line of lines) {
+              if (line.startsWith('event:')) {
+                eventType = line.substring(6).trim()
+              } else if (line.startsWith('data:')) {
+                data = line.substring(5).trim()
+              }
+            }
+
+            // 处理事件
+            if (data) {
+              try {
+                const parsedData = JSON.parse(data)
+                handleSSEEvent(eventType, parsedData)
+              } catch (e) {
+                console.error('Failed to parse SSE data:', e)
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('SSE stream error:', error)
+      }
+    }
+
+    readStream() // 开始读取流
+
+  } catch (error: any) {
+    console.error('Execute workflow error:', error)
+    ElMessage.error('执行失败: ' + (error.response?.data?.message || error.message))
+  } finally {
+    executing.value = false
+    execStore.executing = false
+  }
+}
+
+// 处理 SSE 事件
+function handleSSEEvent(eventType: string, data: any) {
+  switch (eventType) {
+    case 'execution_start':
+      execStore.addLog('workflow', 'info', `开始执行工作流，共 ${data.total_nodes} 个节点`)
+      break
+
+    case 'node_start':
       execStore.updateNodeState(data.node_id, { status: 'running' })
       execStore.addLog(data.node_id, 'info', '开始执行节点: ' + data.node_name)
-    })
+      break
 
-    eventSource.addEventListener('node_progress', (event) => {
-      const data = JSON.parse(event.data)
+    case 'node_progress':
       if (data.message) {
         execStore.addLog(data.node_id, 'info', data.message)
       }
-    })
+      break
 
-    eventSource.addEventListener('node_complete', (event) => {
-      const data = JSON.parse(event.data)
+    case 'node_complete':
       execStore.updateNodeState(data.node_id, {
         status: data.status,
         output: data.output,
@@ -281,33 +355,28 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
         execStore.addLog(data.node_id, 'result', '输出: ' + data.output.slice(0, 100) + '...')
       }
       execStore.addLog(data.node_id, data.status, '节点执行完成')
-    })
+      break
 
-    eventSource.addEventListener('node_error', (event) => {
-      const data = JSON.parse(event.data)
+    case 'node_error':
       execStore.updateNodeState(data.node_id, { status: 'error' })
       execStore.addLog(data.node_id, 'error', '执行错误: ' + data.error)
       if (data.retry_count) {
         execStore.addLog(data.node_id, 'warning', `重试 ${data.retry_count} 次`)
       }
-    })
+      break
 
-    eventSource.addEventListener('execution_paused', (event) => {
-      const data = JSON.parse(event.data)
+    case 'execution_paused':
       execStore.updateNodeState(data.node_id, { status: 'wait' })
       execStore.addLog(data.node_id, 'warning', `工作流暂停，原因: ${data.reason}`)
       debugPaused.value = true
-    })
+      break
 
-    eventSource.addEventListener('execution_resumed', (event) => {
-      const data = JSON.parse(event.data)
+    case 'execution_resumed':
       execStore.addLog(data.node_id, 'info', '工作流已恢复')
       debugPaused.value = false
-    })
+      break
 
-    eventSource.addEventListener('execution_complete', (event) => {
-      const data = JSON.parse(event.data)
-      eventSource.close()
+    case 'execution_complete':
       executing.value = false
       execStore.executing = false
       debugPaused.value = false
@@ -316,30 +385,13 @@ async function doExecute(debug: boolean, inputs: Record<string, any>) {
       } else {
         ElMessage.error('执行失败')
       }
-    })
+      break
 
-    eventSource.addEventListener('execution_error', (event) => {
-      const data = JSON.parse(event.data)
-      eventSource.close()
+    case 'execution_error':
       executing.value = false
       execStore.executing = false
       ElMessage.error('执行错误: ' + data.error)
-    })
-
-    eventSource.addEventListener('error', (error) => {
-      console.error('SSE error:', error)
-      eventSource.close()
-      executing.value = false
-      execStore.executing = false
-      ElMessage.error('实时事件流连接失败')
-    })
-
-  } catch (error: any) {
-    console.error('Execute workflow error:', error)
-    ElMessage.error('执行失败: ' + (error.response?.data?.message || error.message))
-  } finally {
-    executing.value = false
-    execStore.executing = false
+      break
   }
 }
 
