@@ -153,6 +153,12 @@ async def test(tid: str, body: dict = Body(default={}), me=Depends(get_current_u
 
     根据工具类型执行测试：HTTP 工具发送请求、内置工具调用本地函数、Python 工具在沙箱中执行。
     用于验证工具配置是否正确，返回执行结果或错误信息。
+
+    请求体格式：
+    - 直接传递参数：{"q": "Beijing", "appid": "xxx"}
+    - 或嵌套格式：{"args": {"q": "Beijing"}}（兼容旧格式）
     """
     from app.services.tool_service import execute_tool
-    return ok(await execute_tool(tid, body.get("args", {})))
+    # 兼容两种格式：直接传参数 或 {"args": {...}}
+    args = body.get("args", body)
+    return ok(await execute_tool(tid, args))
