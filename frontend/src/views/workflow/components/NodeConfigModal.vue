@@ -258,6 +258,19 @@ function buildPreviewRows(): [string, string][] {
     rows.push(['模型', form.value.config.model || 'gpt-4'])
     rows.push(['温度', String(form.value.config.temperature || 0.7)])
   } else if (props.node?.type === 'rag') {
+    // 显示选中的知识库
+    const selectedKBs = enabledKnowledgeBases.value
+      .filter(kb => form.value.config.kbIds?.includes(kb.id))
+      .map(kb => kb.name)
+      .join(', ')
+    rows.push(['知识库', selectedKBs || '未选择'])
+
+    // 显示选中的 Embedding 模型
+    if (form.value.config.embedModel) {
+      rows.push(['向量模型', form.value.config.embedModel])
+    }
+
+    // 显示检索参数
     rows.push(['Top K', String(form.value.config.topK || 5)])
     rows.push(['阈值', String(form.value.config.threshold || 0.5)])
   } else if (props.node?.type === 'condition') {
