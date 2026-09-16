@@ -15,6 +15,15 @@ export const mockTools: Tool[] = [
       { n: 'unit', t: 'string', d: 'celsius' }
     ],
     auth: { mode: 'none', key: '' },
+    config: {
+      url: 'https://api.weather.com/v1/current',
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 30,
+      retryCount: 2
+    },
     createdAt: '2026-07-25 10:30:00'
   },
   {
@@ -29,6 +38,16 @@ export const mockTools: Tool[] = [
       { n: 'db', t: 'string', d: 'primary' }
     ],
     auth: { mode: 'apikey', key: 'sk-xxxxxxxxxxxx' },
+    config: {
+      url: 'https://api.example.com/sql/query',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ${auth.key}'
+      },
+      timeout: 60,
+      retryCount: 1
+    },
     createdAt: '2026-07-26 14:20:00'
   },
   {
@@ -44,6 +63,7 @@ export const mockTools: Tool[] = [
       { n: 'body', t: 'string', d: '' }
     ],
     auth: { mode: 'none', key: '' },
+    config: {},
     createdAt: '2026-07-27 09:15:00'
   },
   {
@@ -59,6 +79,10 @@ export const mockTools: Tool[] = [
       { n: 'toFormat', t: 'string', d: 'csv' }
     ],
     auth: { mode: 'bearer', key: 'Bearer xxxxxxxxxxxxx' },
+    config: {
+      code: 'def convert_data(data, from_format, to_format):\n    # 转换逻辑\n    return converted_data',
+      runtime: 'python3.11'
+    },
     createdAt: '2026-07-28 16:45:00'
   }
 ]
