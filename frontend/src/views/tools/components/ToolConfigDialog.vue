@@ -51,11 +51,6 @@ const rules = {
   ],
   sig: [
     { required: true, message: '请输入函数签名', trigger: 'blur' }
-  ],
-  // 新增：URL 验证（仅 HTTP 类型）
-  url: [
-    { required: true, message: '请输入 URL 地址', trigger: 'blur' },
-    { type: 'url', message: '请输入有效的 URL 地址', trigger: 'blur' }
   ]
 }
 
@@ -102,7 +97,7 @@ watch(() => props.visible, (val) => {
       form.auth = { ...props.data.auth }
 
       // 新增：填充 config
-      const cfg = props.data.config || {}
+      const cfg = props.data.config as any
       form.config.url = cfg.url || ''
       form.config.method = cfg.method || 'GET'
       form.config.timeout = cfg.timeout || 30
@@ -287,7 +282,7 @@ async function handleSubmit() {
       </el-form-item>
 
       <!-- HTTP 工具配置 -->
-      <el-form-item v-if="form.type === 'HTTP'" label="URL" prop="url">
+      <el-form-item v-if="form.type === 'HTTP'" label="URL">
         <el-input
           v-model="form.config.url"
           placeholder="例如: https://api.example.com/endpoint"

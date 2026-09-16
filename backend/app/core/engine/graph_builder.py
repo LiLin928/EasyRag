@@ -5,12 +5,15 @@
 3. 入口（START → start node）/ 出口（end node → END）
 4. checkpoint + 中断点（debug 暂停所有；human 暂停 human 节点前）
 """
+import logging
 from langgraph.graph import END, START, StateGraph
 
 from app.core.agent.memory import get_checkpointer
 from app.core.engine.nodes import basic  # noqa: F401 — 触发注册
 from app.core.engine.nodes.base import NodeRouter
 from app.core.engine.state import WorkflowState
+
+logger = logging.getLogger(__name__)
 
 
 class GraphBuilder:
@@ -42,8 +45,20 @@ class GraphBuilder:
             if n["type"] == "end":
                 graph.add_edge(n["id"], END)
 
-        checkpointer = await get_checkpointer()
+        try:
+            checkpointer = await get_checkpointer()
+            logger.info(f"[GraphBuilder] Checkpointer initialized: {type(checkpointer)}")
+        except Exception as e:
+            logger.error(f"[GraphBuilder] Failed to initialize checkpointer: {e}", exc_info=True)
+            raise
+
         interrupt = ["*"] if debug else [
             n["id"] for n in nodes if n["type"] == "human"
         ]
-        return graph.compile(checkpointer=checkpointer, interrupt_before=interrupt or None)
+
+        logger.info(f"[GraphBuilder] Compiling graph with interrupt_before={interrupt}")
+
+        compiled = graph.compile(checkpointer=checkpointer, interrupt_before=interrupt or None)
+        logger.info(f"[GraphBuilder] Graph compiled successfully")
+
+        return compiled

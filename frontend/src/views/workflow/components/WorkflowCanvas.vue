@@ -130,7 +130,7 @@ function getExecDuration(nodeId: string) {
       :max-zoom="4"
       :delete-key-code="['Backspace', 'Delete']"
       :edge-types="edgeTypes"
-      fit-view-on-init
+      :fit-view-options="{ maxZoom: 1, padding: 0.1 }" 
       class="vue-flow-canvas"
     >
       <Background pattern-gap="20" :size="1" />

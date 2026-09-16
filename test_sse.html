@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Test</title>
+</head>
+<body>
+    <h1>Test SSE Connection</h1>
+    <div id="log"></div>
+    
+    <script>
+        // 替换为你的 token
+        const token = localStorage.getItem('token') || prompt('Enter token:');
+        const executionId = '3ef98194-caf9-4833-a0e9-8e14c292fae7';
+        
+        const url = `http://localhost:3000/api/v2/executions/${executionId}/stream`;
+        
+        fetch(url, {
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Accept': 'text/event-stream',
+            },
+        }).then(response => {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            function read() {
+                reader.read().then(({ done, value }) => {
+                    if (done) {
+                        console.log('Stream ended');
+                        return;
+                    }
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    document.getElementById('log').innerHTML += '<pre>' + buffer + '</pre>';
+                    buffer = '';
+                    
+                    read();
+                });
+            }
+            
+            read();
+        }).catch(err => {
+            console.error('SSE error:', err);
+            document.getElementById('log').innerHTML = 'Error: ' + err;
+        });
+    </script>
+</body>
+</html>

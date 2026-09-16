@@ -7,8 +7,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from celery import Celery
+from celery.signals import worker_process_init
 from kombu import Queue
 import os
+import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 优先使用 Celery 专用配置，回退到通用 Redis URL
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL") or os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -119,6 +124,23 @@ celery_app.conf.beat_schedule = {
 def get_celery_app():
     """获取 Celery 应用实例"""
     return celery_app
+
+
+# Worker 进程初始化钩子
+@worker_process_init.connect
+def init_worker_process(**kwargs):
+    """Celery worker 进程启动时初始化资源"""
+    logger.info("[Celery] Worker process initializing...")
+
+    # 初始化 checkpointer（在事件循环中运行）
+    try:
+        from app.core.agent.memory import get_checkpointer
+        checkpointer = asyncio.run(get_checkpointer())
+        logger.info(f"[Celery] Checkpointer initialized: {type(checkpointer)}")
+    except Exception as e:
+        logger.error(f"[Celery] Failed to initialize checkpointer: {e}", exc_info=True)
+
+    logger.info("[Celery] Worker process initialized")
 
 
 # 调试：打印配置

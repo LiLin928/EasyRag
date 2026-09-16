@@ -62,7 +62,7 @@ def execute_workflow(
     except Exception as exc:
         logger.error(f"Workflow execution failed: {execution_id}, error={exc}")
 
-        _publish_sync(stream_key, "execution_failed", {
+        _publish_sync(stream_key, "execution_error", {
             "execution_id": execution_id,
             "error": str(exc)
         })
@@ -82,10 +82,11 @@ async def _execute_workflow_async(
 ) -> dict:
     """异步执行工作流"""
     # 1. 发送开始事件
-    _publish_sync(stream_key, "execution_started", {
+    _publish_sync(stream_key, "execution_start", {
         "execution_id": execution_id,
         "debug": debug,
-        "inputs": inputs
+        "inputs": inputs,
+        "total_nodes": len(definition.get("nodes", []))
     })
 
     nodes = definition.get("nodes", [])
@@ -98,8 +99,13 @@ async def _execute_workflow_async(
     from app.core.engine.graph_builder import GraphBuilder
     from app.core.engine.state import WorkflowState
 
-    builder = GraphBuilder()
-    graph = await builder.build(definition, execution_id, debug)
+    try:
+        builder = GraphBuilder()
+        graph = await builder.build(definition, execution_id, debug)
+        logger.info(f"[Workflow] Graph built successfully for execution {execution_id}")
+    except Exception as e:
+        logger.error(f"[Workflow] Failed to build graph: {e}", exc_info=True)
+        raise
 
     # 3. 准备初始状态（包含输入参数）
     initial_state = {
@@ -116,23 +122,28 @@ async def _execute_workflow_async(
     # 4. 执行工作流
     try:
         config = {"configurable": {"thread_id": execution_id}}
+        logger.info(f"[Workflow] Starting execution {execution_id} with config {config}")
 
         async for event in graph.astream_events(initial_state, config=config, version="v2"):
             kind = event.get("event")
             name = event.get("name", "")
             data = event.get("data", {})
 
+            logger.debug(f"[Workflow] Received event: kind={kind}, name={name}")
+
             # 发布节点事件
             if kind == "on_chain_start":
-                _publish_sync(stream_key, "node_started", {
+                _publish_sync(stream_key, "node_start", {
                     "execution_id": execution_id,
                     "node_id": name,
+                    "node_name": name,
                 })
             elif kind == "on_chain_end":
-                _publish_sync(stream_key, "node_completed", {
+                _publish_sync(stream_key, "node_complete", {
                     "execution_id": execution_id,
                     "node_id": name,
                     "output": str(data.get("output", ""))[:500],
+                    "status": "completed",
                 })
 
         # 5. 获取最终状态
@@ -147,8 +158,10 @@ async def _execute_workflow_async(
             }
         }
 
-        _publish_sync(stream_key, "execution_completed", {
+        _publish_sync(stream_key, "execution_complete", {
             "execution_id": execution_id,
+            "success": True,
+            "total_duration_ms": 0,  # TODO: 计算实际耗时
             "result": result
         })
 
@@ -156,8 +169,8 @@ async def _execute_workflow_async(
         return result
 
     except Exception as exc:
-        logger.error(f"Workflow async execution failed: {exc}")
-        _publish_sync(stream_key, "execution_failed", {
+        logger.error(f"Workflow async execution failed: {exc}", exc_info=True)
+        _publish_sync(stream_key, "execution_error", {
             "execution_id": execution_id,
             "error": str(exc)
         })
@@ -246,18 +259,20 @@ async def _execute_node_async(execution_id: str, node: Dict[str, Any], stream_ke
     }
 
     # 执行节点
-    _publish_sync(stream_key, "node_started", {
+    _publish_sync(stream_key, "node_start", {
         "execution_id": execution_id,
         "node_id": node["id"],
         "node_type": node["type"],
+        "node_name": node.get("name", node["id"]),
     })
 
     result = await executor.run(state)
 
-    _publish_sync(stream_key, "node_completed", {
+    _publish_sync(stream_key, "node_complete", {
         "execution_id": execution_id,
         "node_id": node["id"],
         "result": result,
+        "status": "completed",
     })
 
     return result

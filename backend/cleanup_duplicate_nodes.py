@@ -39,7 +39,11 @@ async def cleanup_duplicate_nodes():
 
         # 2. 删除空节点
         for node in empty_nodes:
-            print(f'删除空节点: {node["title"]} (ID: {node["id"]})')
+            # 安全打印（避免编码错误）
+            try:
+                print(f'删除空节点: {node["title"]} (ID: {node["id"]})')
+            except UnicodeEncodeError:
+                print(f'删除空节点: (ID: {node["id"]})')
 
             # 删除子节点的 parent_id 引用（如果有）
             await session.execute(
