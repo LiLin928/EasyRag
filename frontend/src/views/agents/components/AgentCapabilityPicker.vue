@@ -106,14 +106,17 @@ const skillOptions = computed(() => {
 // 初始化标记，避免初始化时触发 emit
 const isInitialized = ref(false)
 
-// 监听 props 变化（仅初始化时使用）
+// 监听 props 变化
 watch(() => [props.tools, props.docs, props.wfs, props.mcps, props.skills], ([tools, docs, wfs, mcps, skills]) => {
+  // 每次props变化都更新本地状态（包括编辑不同智能体时）
+  selectedTools.value = [...(tools || [])]
+  selectedDocs.value = [...(docs || [])]
+  selectedWfs.value = [...(wfs || [])]
+  selectedMcps.value = [...(mcps || [])]
+  selectedSkills.value = [...(skills || [])]
+
+  // 标记已初始化
   if (!isInitialized.value) {
-    selectedTools.value = [...(tools || [])]
-    selectedDocs.value = [...(docs || [])]
-    selectedWfs.value = [...(wfs || [])]
-    selectedMcps.value = [...(mcps || [])]
-    selectedSkills.value = [...(skills || [])]
     isInitialized.value = true
   }
 }, { immediate: true })
@@ -125,6 +128,12 @@ watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], 
     emit('update', {
       tools: tools || [],
       docs: docs || [],
+      wfs: wfs || [],
+      mcps: mcps || [],
+      skills: skills || []
+    })
+  }
+}, { deep: true })
       wfs: wfs || [],
       mcps: mcps || [],
       skills: skills || []
