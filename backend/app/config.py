@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     langfuse_secret_key: str | None = None
     langfuse_host: str = "http://localhost:3000"
 
+    # Workflow（持久化配置）
+    workflow_persistent: bool = False  # True: PostgresSaver（持久化、多实例），False: MemorySaver（开发）
+
     # 默认模型（seed 用，env 可不配 → 不 seed）
     llm_default_base_url: str | None = None
     llm_default_api_key: str | None = None
