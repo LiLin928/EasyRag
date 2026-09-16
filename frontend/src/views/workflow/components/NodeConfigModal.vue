@@ -367,6 +367,32 @@ function handleDialogUpdate(val: boolean) {
           </div>
         </el-form-item>
 
+        <!-- Embedding 模型选择 -->
+        <el-form-item label="向量模型">
+          <el-select
+            v-model="form.config.embedModel"
+            placeholder="选择 Embedding 模型"
+            filterable
+            clearable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="model in enabledEmbedModels"
+              :key="model.name"
+              :label="model.name + (model.def ? ' (默认)' : '')"
+              :value="model.name"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ model.name }}</span>
+                <el-tag v-if="model.def" type="success" size="small">默认</el-tag>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="enabledEmbedModels.length === 0" style="color: #909399; font-size: 12px; margin-top: 4px;">
+            暂无可用模型，请先在系统设置中配置
+          </div>
+        </el-form-item>
+
         <!-- Top K -->
         <el-form-item label="Top K">
           <el-input-number v-model="form.config.topK" :min="1" :max="20" />
