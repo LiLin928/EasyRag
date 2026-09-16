@@ -134,12 +134,6 @@ watch([selectedTools, selectedDocs, selectedWfs, selectedMcps, selectedSkills], 
     })
   }
 }, { deep: true })
-      wfs: wfs || [],
-      mcps: mcps || [],
-      skills: skills || []
-    })
-  }
-}, { deep: true })
 
 // 注意：数据加载由父组件 AgentConfigDrawer.loadCandidateData() 负责
 // 这里不需要重复加载，避免数据被清空或覆盖
