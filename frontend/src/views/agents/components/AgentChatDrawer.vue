@@ -96,6 +96,18 @@ function handleSSEEvent(message: ChatMessage, event: string, data: any) {
       }
       break
 
+    case 'tool_start':
+      // 工具开始调用
+      if (message) {
+        const toolName = data.tool || '工具'
+        message.content = (message.content || '') + `\n🔧 正在使用 ${toolName}...\n`
+      }
+      break
+
+    case 'tool_end':
+      // 工具调用完成（不显示，静默处理）
+      break
+
     case 'done':
       // 完成
       if (message) {
@@ -109,7 +121,7 @@ function handleSSEEvent(message: ChatMessage, event: string, data: any) {
       // 错误
       if (message) {
         message.phase = 'idle'
-        message.content = '抱歉，发生了错误：' + (data.error || '未知错误')
+        message.content = '抱歉，发生了错误：' + (data.message || data.error || '未知错误')
       }
       break
   }
