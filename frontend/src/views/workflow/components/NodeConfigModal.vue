@@ -338,15 +338,41 @@ function handleDialogUpdate(val: boolean) {
 
       <template v-if="showRagConfig">
         <el-divider content-position="left">RAG 配置</el-divider>
+
+        <!-- 知识库选择 -->
         <el-form-item label="知识库">
-          <el-select v-model="form.config.kbIds" multiple placeholder="选择知识库">
-            <el-option label="知识库 A" value="kb-1" />
-            <el-option label="知识库 B" value="kb-2" />
+          <el-select
+            v-model="form.config.kbIds"
+            multiple
+            placeholder="选择知识库"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="kb in enabledKnowledgeBases"
+              :key="kb.id"
+              :label="kb.name"
+              :value="kb.id"
+            >
+              <div style="display: flex; justify-content: space-between;">
+                <span>{{ kb.name }}</span>
+                <span style="color: #909399; font-size: 12px;">
+                  {{ kb.doc_count || 0 }} 篇文档
+                </span>
+              </div>
+            </el-option>
           </el-select>
+          <div v-if="enabledKnowledgeBases.length === 0" style="color: #909399; font-size: 12px; margin-top: 4px;">
+            暂无可用知识库，请先在知识库管理中创建
+          </div>
         </el-form-item>
+
+        <!-- Top K -->
         <el-form-item label="Top K">
           <el-input-number v-model="form.config.topK" :min="1" :max="20" />
         </el-form-item>
+
+        <!-- 相似度阈值 -->
         <el-form-item label="相似度阈值">
           <el-slider v-model="form.config.threshold" :min="0" :max="1" :step="0.1" />
         </el-form-item>
