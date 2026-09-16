@@ -108,14 +108,14 @@ def _mcp_proxy_tool(m: Mcp):
     from langchain_core.tools import tool
 
     tool_name = _sanitize_tool_name(m.name, prefix="mcp")
-    description = f"MCP 服务：{m.name}。包含 {m.toolCount} 个工具。"
+    description = f"MCP 服务：{m.name}。包含 {m.tool_count} 个工具。"
 
     # 如果知道具体工具名称，可以添加到描述中
     # 这里只是占位，实际工具会在调用时动态发现
 
     @tool(tool_name, description=description)
     def _mcp_proxy() -> str:
-        return f"[MCP {m.name}] MCP 服务已就绪，包含 {m.toolCount} 个工具"
+        return f"[MCP {m.name}] MCP 服务已就绪，包含 {m.tool_count} 个工具"
 
     return _mcp_proxy
 
