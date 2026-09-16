@@ -83,11 +83,13 @@ async def build_tools(agent: Agent) -> list:
                     tools.extend(mcp_tools)
                 except Exception:
                     pass
-        # 5. skills → 技能激活工具
+        # 5. skills → 技能激活工具（带脚本执行）
         for sid in (agent.skills or []):
             sk = (await s.execute(select(Skill).where(Skill.id == sid))).scalar_one_or_none()
             if sk:
-                tools.append(_skill_tool(sk))
+                # 使用带脚本执行的技能工具
+                from app.core.agent.skill_tool_executor import create_skill_tool_with_scripts
+                tools.append(create_skill_tool_with_scripts(sk))
     return tools
 
 

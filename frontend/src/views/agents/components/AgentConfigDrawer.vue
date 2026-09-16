@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, nextTick, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useToolStore } from '@/stores/tool'
 import { useKnowledgeStore } from '@/stores/knowledge'
@@ -9,6 +9,7 @@ import { useSkillStore } from '@/stores/skill'
 import { useSettingsStore } from '@/stores/settings'
 import AgentCapabilityPicker from './AgentCapabilityPicker.vue'
 import type { Agent } from '@/types/agent'
+import { debugAgentForm, safeCopyAgentData } from '@/utils/agentDebug'
 
 interface Props {
   visible: boolean
@@ -67,22 +68,12 @@ watch(() => props.visible, async (visible) => {
   if (visible) {
     await loadCandidateData()
     if (props.data) {
-      formData.value = {
-        name: props.data.name,
-        desc: props.data.desc,
-        model: props.data.model,
-        prompt: props.data.prompt,
-        temp: props.data.temp,
-        maxtok: props.data.maxtok,
-        tools: [...props.data.tools],
-        docs: [...props.data.docs],
-        wfs: [...props.data.wfs],
-        mcps: [...props.data.mcps],
-        skills: [...props.data.skills],
-        enabled: props.data.enabled
-      }
+      // 使用安全的深拷贝初始化
+      formData.value = safeCopyAgentData(props.data)
+      debugAgentForm(formData.value, '初始化（编辑模式）')
     } else {
       resetForm()
+      debugAgentForm(formData.value, '初始化（新建模式）')
     }
   }
 })
@@ -145,18 +136,27 @@ function handleCapabilityUpdate(capabilities: {
   mcps: string[]
   skills: string[]
 }) {
+  console.log('[能力更新] 接收到:', capabilities)
   formData.value.tools = capabilities.tools
   formData.value.docs = capabilities.docs
   formData.value.wfs = capabilities.wfs
   formData.value.mcps = capabilities.mcps
   formData.value.skills = capabilities.skills
+  debugAgentForm(formData.value, '能力更新后')
 }
 
 function handleSubmit() {
+  debugAgentForm(formData.value, '提交前')
+
   if (!formData.value.name.trim()) {
     ElMessage.warning('请输入智能体名称')
     return
   }
+
+  // 再次验证数据完整性
+  const { tools, mcps, skills } = formData.value
+  console.log('[提交验证]', { tools: tools?.length, mcps: mcps?.length, skills: skills?.length })
+
   emit('submit', formData.value)
 }
 
