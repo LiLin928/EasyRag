@@ -71,7 +71,7 @@ export function getNodeOutputParams(node: WfNode): OutputParamOption[] {
 
   return outputDefs.map(p => ({
     name: `${displayName}.${p.name}`,
-    path: `\${${node.id}.${p.name}}`
+    path: `{{${node.id}.${p.name}}}`  // 使用双大括号语法匹配后端解析器
   }))
 }
 
@@ -84,7 +84,7 @@ export function getStartNodeOutputParams(node: WfNode): OutputParamOption[] {
   if (inputVars?.length) {
     return inputVars.map(v => ({
       name: `${displayName}.${v.name}`,
-      path: `\${${node.id}.${v.name}}`
+      path: `{{${node.id}.${v.name}}}`  // 使用双大括号语法匹配后端解析器
     }))
   }
   return []

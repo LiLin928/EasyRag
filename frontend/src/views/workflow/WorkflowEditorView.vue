@@ -195,187 +195,144 @@ async function confirmStartInput() {
   await doExecute(pendingDebug.value, startInputValues.value)
 }
 
-// 实际执行流程
+// 实际执行流程（调用真实后端 API）
 async function doExecute(debug: boolean, inputs: Record<string, any>) {
   executing.value = true
   debugAbort.value = false
   execStore.reset()
   execStore.debugMode = debug
   debugCurrentIndex.value = 0
-  
+
   try {
-    const executionOrder = getExecutionOrder(store.nodes, store.edges)
-    
-    for (let i = 0; i < executionOrder.length; i++) {
-      const node = executionOrder[i]
-      
-      if (debugAbort.value) {
-        execStore.addLog(node.id, 'warning', '执行已中止')
-        break
+    // 调用后端 API 执行工作流
+    const response = await wfApi.executeWorkflow(store.id, debug, inputs)
+    const executionId = response.executionId
+
+    // 保存当前执行 ID
+    execStore.execId = executionId
+
+    // 监听 SSE 事件流
+    const streamUrl = wfApi.getExecutionStreamUrl(executionId)
+    const eventSource = new EventSource(streamUrl)
+
+    eventSource.addEventListener('execution_start', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.addLog('workflow', 'info', `开始执行工作流，共 ${data.total_nodes} 个节点`)
+    })
+
+    eventSource.addEventListener('node_start', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.updateNodeState(data.node_id, { status: 'running' })
+      execStore.addLog(data.node_id, 'info', '开始执行节点: ' + data.node_name)
+    })
+
+    eventSource.addEventListener('node_progress', (event) => {
+      const data = JSON.parse(event.data)
+      if (data.message) {
+        execStore.addLog(data.node_id, 'info', data.message)
       }
-      
-      debugCurrentIndex.value = i
-      await executeNode(node, inputs)
-      
-      // 调试模式：每个节点执行后暂停
-      if (debug) {
-        debugPaused.value = true
-        execStore.executing = true
-        await waitForDebugResume()
-        debugPaused.value = false
-        
-        if (debugAbort.value) {
-          execStore.addLog(node.id, 'warning', '执行已中止')
-          break
-        }
+    })
+
+    eventSource.addEventListener('node_complete', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.updateNodeState(data.node_id, {
+        status: data.status,
+        output: data.output,
+        durationMs: data.duration_ms
+      })
+      if (data.output) {
+        execStore.addLog(data.node_id, 'result', '输出: ' + data.output.slice(0, 100) + '...')
       }
-    }
-    
-    if (!debugAbort.value) {
-      ElMessage.success('执行完成')
-    }
+      execStore.addLog(data.node_id, data.status, '节点执行完成')
+    })
+
+    eventSource.addEventListener('node_error', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.updateNodeState(data.node_id, { status: 'error' })
+      execStore.addLog(data.node_id, 'error', '执行错误: ' + data.error)
+      if (data.retry_count) {
+        execStore.addLog(data.node_id, 'warning', `重试 ${data.retry_count} 次`)
+      }
+    })
+
+    eventSource.addEventListener('execution_paused', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.updateNodeState(data.node_id, { status: 'wait' })
+      execStore.addLog(data.node_id, 'warning', `工作流暂停，原因: ${data.reason}`)
+      debugPaused.value = true
+    })
+
+    eventSource.addEventListener('execution_resumed', (event) => {
+      const data = JSON.parse(event.data)
+      execStore.addLog(data.node_id, 'info', '工作流已恢复')
+      debugPaused.value = false
+    })
+
+    eventSource.addEventListener('execution_complete', (event) => {
+      const data = JSON.parse(event.data)
+      eventSource.close()
+      executing.value = false
+      execStore.executing = false
+      debugPaused.value = false
+      if (data.success) {
+        ElMessage.success(`执行完成，总耗时 ${data.total_duration_ms}ms`)
+      } else {
+        ElMessage.error('执行失败')
+      }
+    })
+
+    eventSource.addEventListener('execution_error', (event) => {
+      const data = JSON.parse(event.data)
+      eventSource.close()
+      executing.value = false
+      execStore.executing = false
+      ElMessage.error('执行错误: ' + data.error)
+    })
+
+    eventSource.addEventListener('error', (error) => {
+      console.error('SSE error:', error)
+      eventSource.close()
+      executing.value = false
+      execStore.executing = false
+      ElMessage.error('实时事件流连接失败')
+    })
+
   } catch (error) {
-    ElMessage.error('执行失败')
+    console.error('Execute workflow error:', error)
+    ElMessage.error('执行失败: ' + (error.response?.data?.message || error.message))
   } finally {
     executing.value = false
     execStore.executing = false
-    debugPaused.value = false
   }
 }
 
-// 获取节点的执行顺序（拓扑排序，从 start 开始）
-function getExecutionOrder(nodes: WfNode[], edges: WfEdge[]): WfNode[] {
-  const nodeMap = new Map(nodes.map(n => [n.id, n]))
-  const adjacencyList = new Map<string, string[]>()
-  const inDegree = new Map<string, number>()
-  
-  // 初始化
-  nodes.forEach(n => {
-    adjacencyList.set(n.id, [])
-    inDegree.set(n.id, 0)
-  })
-  
-  // 构建邻接表和入度
-  edges.forEach(e => {
-    adjacencyList.get(e.source)?.push(e.target)
-    inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1)
-  })
-  
-  // 找到 start 节点作为起点
-  const startNode = nodes.find(n => n.type === 'start')
-  if (!startNode) return nodes // 没有 start 节点，按原顺序返回
-  
-  // 从 start 节点开始 BFS
-  const order: WfNode[] = []
-  const visited = new Set<string>()
-  const queue: string[] = [startNode.id]
-  
-  while (queue.length > 0) {
-    const currentId = queue.shift()!
-    if (visited.has(currentId)) continue
-    visited.add(currentId)
-    
-    const node = nodeMap.get(currentId)
-    if (node) order.push(node)
-    
-    // 获取下一层节点
-    const nextIds = adjacencyList.get(currentId) || []
-    // 条件分支：yes 优先于 no
-    const sortedNextIds = nextIds.sort((a, b) => {
-      const edgeA = edges.find(e => e.source === currentId && e.target === a)
-      const edgeB = edges.find(e => e.source === currentId && e.target === b)
-      if (edgeA?.sourceHandle === 'yes' && edgeB?.sourceHandle !== 'yes') return -1
-      if (edgeB?.sourceHandle === 'yes' && edgeA?.sourceHandle !== 'yes') return 1
-      return 0
-    })
-    
-    sortedNextIds.forEach(id => {
-      if (!visited.has(id)) {
-        queue.push(id)
-      }
-    })
-  }
-  
-  return order
-}
-
-// 模拟执行单个节点，返回执行结果
-async function executeNode(node: WfNode, inputs?: Record<string, any>): Promise<any> {
-  execStore.updateNodeState(node.id, { status: 'running' })
-  execStore.addLog(node.id, 'info', '开始执行节点: ' + node.name)
-  
-  // 模拟 start 节点输入
-  if (node.type === 'start' && inputs) {
-    execStore.addLog(node.id, 'info', '输入参数: ' + JSON.stringify(inputs))
-    await delay(100)
-    execStore.updateNodeState(node.id, { status: 'success', output: JSON.stringify(inputs) })
-    execStore.addLog(node.id, 'success', '节点执行完成: ' + node.name)
-    return inputs
-  }
-  
-  // 模拟 human 节点等待
-  if (node.type === 'human') {
-    execStore.addLog(node.id, 'warning', '等待人工介入...')
-    execStore.updateNodeState(node.id, { status: 'wait' })
-    await delay(500)
-    execStore.updateNodeState(node.id, { status: 'success', output: '{"result": "approved"}' })
-    execStore.addLog(node.id, 'success', '人工介入完成')
-    return { result: 'approved' }
-  }
-  
-  // 模拟条件分支
-  if (node.type === 'condition') {
-    await delay(300)
-    const result = Math.random() > 0.3 // 70% 概率为 true
-    execStore.updateNodeState(node.id, { status: 'success', output: JSON.stringify({ result }) })
-    execStore.addLog(node.id, 'result', '条件判断结果: ' + (result ? '是' : '否'))
-    return { result }
-  }
-  
-  // 模拟 LLM 节点
-  if (node.type === 'llm') {
-    await delay(2000)
-    const output = {
-      result: '分析完成',
-      content: '这是一个模拟的 LLM 输出内容...'
+// 调试控制
+async function handleDebugContinue() {
+  // 继续执行：调用后端 API resume
+  if (execStore.execId) {
+    try {
+      await wfApi.debugContinue(execStore.execId)
+    } catch (error) {
+      ElMessage.error('继续执行失败')
     }
-    execStore.updateNodeState(node.id, { status: 'success', output: JSON.stringify(output) })
-    execStore.addLog(node.id, 'result', 'LLM 输出: ' + JSON.stringify(output).slice(0, 100) + '...')
-    return output
-  }
-  
-  // 模拟其他节点
-  await delay(500 + Math.random() * 1000)
-  const genericOutput = { result: node.type + '_completed' }
-  execStore.updateNodeState(node.id, { status: 'success', output: JSON.stringify(genericOutput) })
-  execStore.addLog(node.id, 'success', '节点执行完成: ' + node.name)
-  return genericOutput
-}
-
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function waitForDebugResume(): Promise<void> {
-  return new Promise((resolve) => {
-    debugResolve.value = resolve
-  })
-}
-
-function handleDebugContinue() {
-  if (debugResolve.value) {
-    debugResolve.value()
-    debugResolve.value = null
   }
 }
 
-function handleDebugStep() {
-  handleDebugContinue()
+async function handleDebugStep() {
+  // 单步执行：调用后端 API 继续到下一个节点
+  await handleDebugContinue()
 }
 
-function handleDebugStop() {
-  debugAbort.value = true
-  handleDebugContinue()
+async function handleDebugStop() {
+  // 停止执行：调用后端 API 取消
+  if (execStore.execId) {
+    try {
+      await wfApi.cancelExecution(execStore.execId)
+      debugAbort.value = true
+    } catch (error) {
+      ElMessage.error('停止执行失败')
+    }
+  }
 }
 
 function handleDragStart(e: DragEvent, nodeType: string) {

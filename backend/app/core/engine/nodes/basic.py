@@ -31,8 +31,9 @@ class LLMExecutor(BaseNodeExecutor):
             temperature=self.config.get("temperature", 0.7),
             max_tokens=self.config.get("max_tokens"),
         )
-        sys_prompt = resolve(self.config.get("system_prompt", ""), state)
-        usr_prompt = resolve(self.config.get("user_prompt", ""), state)
+        # 兼容前端驼峰命名和后端下划线命名
+        sys_prompt = resolve(self.config.get("system_prompt") or self.config.get("systemPrompt", ""), state)
+        usr_prompt = resolve(self.config.get("user_prompt") or self.config.get("userPrompt", ""), state)
         prompt = ChatPromptTemplate.from_messages([("system", sys_prompt), ("human", usr_prompt)])
         chain = prompt | llm | StrOutputParser()
         out = await chain.ainvoke({})

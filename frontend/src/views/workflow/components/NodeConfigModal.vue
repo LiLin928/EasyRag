@@ -341,6 +341,17 @@ function handleDialogUpdate(val: boolean) {
         <el-form-item label="系统提示">
           <el-input v-model="form.config.systemPrompt" type="textarea" :rows="3" placeholder="系统提示词" />
         </el-form-item>
+        <el-form-item label="用户提示">
+          <el-input
+            v-model="form.config.userPrompt"
+            type="textarea"
+            :rows="3"
+            placeholder="用户提示词，可引用上游变量，如：{{start.query}}"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 4px;">
+            使用 {{节点ID.变量名}} 引用上游节点输出，如 {{start.query}}
+          </div>
+        </el-form-item>
         <el-form-item label="温度">
           <el-slider v-model="form.config.temperature" :min="0" :max="1" :step="0.1" />
         </el-form-item>
