@@ -10,13 +10,63 @@ from app.core.engine.state import resolve, resolve_dict
 
 
 class StartExecutor(BaseNodeExecutor):
+    """开始节点执行器
+
+    处理工作流的输入变量，从 state["inputs"] 中提取用户输入，
+    存储到 node_outputs 中以便后续节点引用。
+    """
+
     async def run(self, state: dict) -> dict:
-        return {"current_node": self.node_id}
+        # 获取输入变量配置
+        input_vars = self.config.get("input_variables", [])
+        inputs = state.get("inputs", {})
+
+        # 构建输出字典
+        output = {}
+        for var in input_vars:
+            var_name = var.get("name", "")
+            # 从 inputs 中获取用户输入的值
+            if var_name:
+                output[var_name] = inputs.get(var_name, "")
+
+        # 存储到 node_outputs 中，以便后续节点引用
+        outputs = {**state.get("node_outputs", {}), self.node_id: output}
+
+        return {
+            "current_node": self.node_id,
+            "node_outputs": outputs
+        }
 
 
 class EndExecutor(BaseNodeExecutor):
+    """结束节点执行器
+
+    处理工作流的输出变量，根据 output_variables 配置从其他节点提取数据，
+    存储到 node_outputs 中。
+    """
+
     async def run(self, state: dict) -> dict:
-        return {"current_node": self.node_id, "status": "completed"}
+        # 获取输出变量配置
+        output_vars = self.config.get("output_variables", [])
+
+        # 构建输出字典
+        output = {}
+        for var in output_vars:
+            var_name = var.get("name", "")
+            var_source = var.get("source", "")
+
+            if var_name and var_source:
+                # 使用 resolve 函数解析变量引用（如 {{start-1.query}}）
+                output[var_name] = resolve(var_source, state)
+
+        # 存储到 node_outputs 中
+        outputs = {**state.get("node_outputs", {}), self.node_id: output}
+
+        return {
+            "current_node": self.node_id,
+            "status": "completed",
+            "node_outputs": outputs
+        }
 
 
 class LLMExecutor(BaseNodeExecutor):

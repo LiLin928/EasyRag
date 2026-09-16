@@ -56,24 +56,25 @@ inputs = json.loads('''{json.dumps(inputs)}''')
 # 执行入口
 result = None
 try:
-    # 如果脚本定义了 main 函数，调用它
-    if 'main' in dir():
+    # 尝试调用 main 函数
+    import sys
+    current_module = sys.modules.get('__main__')
+    if current_module and hasattr(current_module, 'main'):
+        result = current_module.main(inputs)
+    elif 'main' in globals():
         result = main(inputs)
-    # 如果脚本定义了 run 函数，调用它
-    elif 'run' in dir():
+    elif 'run' in globals():
         result = run(inputs)
-    # 如果脚本定义了 execute 函数，调用它
-    elif 'execute' in dir():
+    elif 'execute' in globals():
         result = execute(inputs)
+    else:
+        result = {{"error": "No main/run/execute function found"}}
 except Exception as e:
     import traceback
     result = {{"error": str(e), "traceback": traceback.format_exc()}}
 
 # 输出结果
-if result is not None:
-    print(json.dumps({{"success": True, "output": result}}))
-else:
-    print(json.dumps({{"success": True, "output": None}}))
+print(json.dumps({{"success": True, "output": result}}))
 """
 
     try:

@@ -230,15 +230,15 @@ class OpenSandboxClient:
         Returns:
             沙箱信息
         """
-        # 构建 image 规范
+        # OpenSandbox API 正确格式（已测试验证）
         payload: dict[str, Any] = {
-            "image": {"uri": image},
-            "entrypoint": command,  # OpenSandbox 使用 entrypoint（数组）
-            "timeout": timeout_seconds,  # OpenSandbox 使用 timeout（不是 timeout_seconds）
+            "image": {"uri": image},  # image 必须是对象
+            "entrypoint": command,  # 必须使用 entrypoint
             "resourceLimits": {
-                "cpu": f"{int(cpu * 1000)}m",  # 转换为毫核，如 "1000m"
-                "memory": f"{memory_mb}Mi",  # 转换为 MiB，如 "512Mi"
+                "cpu": f"{int(cpu * 1000)}m",  # CPU 格式: "1000m"
+                "memory": f"{memory_mb}Mi",  # 内存格式: "512Mi"
             },
+            "timeout": max(timeout_seconds, 60),  # timeout 最小 60 秒
         }
 
         if env:
@@ -248,10 +248,17 @@ class OpenSandboxClient:
 
         response = await self._request("POST", "/sandboxes", json=payload)
 
-        # OpenSandbox 返回的是 "id" 而不是 "sandbox_id"
+        # 兼容不同的响应格式
+        sandbox_id = response.get("id") or response.get("sandbox_id")
+        status_value = response.get("status", {})
+        if isinstance(status_value, dict):
+            status_str = status_value.get("state", "Creating")
+        else:
+            status_str = status_value
+
         return SandboxInfo(
-            sandbox_id=response["id"],
-            status=SandboxState(response["status"]["state"]),
+            sandbox_id=sandbox_id,
+            status=SandboxState(status_str),
         )
 
     @with_retry(max_retries=2, backoff_factor=1.5)
@@ -266,16 +273,24 @@ class OpenSandboxClient:
         """
         response = await self._request("GET", f"/sandboxes/{sandbox_id}")
 
+        # 兼容不同的响应格式
+        sandbox_id_resp = response.get("id") or response.get("sandbox_id")
+        status_value = response.get("status", {})
+        if isinstance(status_value, dict):
+            status_str = status_value.get("state", "Creating")
+        else:
+            status_str = status_value
+
         info = SandboxInfo(
-            sandbox_id=response["id"],
-            status=SandboxState(response["status"]["state"]),
+            sandbox_id=sandbox_id_resp,
+            status=SandboxState(status_str),
         )
 
         # 提取退出码和错误信息
         if "exit_code" in response:
             info.exit_code = response["exit_code"]
-        if response.get("status", {}).get("message"):
-            info.error = response["status"]["message"]
+        if response.get("error"):
+            info.error = response["error"]
 
         return info
 
@@ -340,18 +355,25 @@ class OpenSandboxClient:
         Returns:
             日志内容
         """
-        response = await self._request(
-            "GET",
-            f"/sandboxes/{sandbox_id}/diagnostics/logs",
-            params={"tail": tail},
-        )
+        # 直接获取文本响应，不解析 JSON
+        client = await self._get_client()
+        try:
+            response = await client.request(
+                "GET",
+                f"/sandboxes/{sandbox_id}/diagnostics/logs",
+                params={"tail": tail},
+            )
+            response.raise_for_status()
 
-        # OpenSandbox 返回日志文本
-        logs_text = response if isinstance(response, str) else str(response)
+            # 日志是纯文本格式
+            logs_text = response.text
 
-        # 简单解析 stdout/stderr（假设 OpenSandbox 格式）
-        # 实际格式可能需要根据 OpenSandbox 文档调整
-        return SandboxLogs(stdout=logs_text, stderr="")
+            return SandboxLogs(stdout=logs_text, stderr="")
+
+        except httpx.HTTPStatusError as e:
+            raise BizException(ErrorCode.DEPENDENCY_DOWN, f"获取日志失败: {e}")
+        except Exception as e:
+            raise BizException(ErrorCode.DEPENDENCY_DOWN, f"获取日志异常: {e}")
 
     async def delete_sandbox(self, sandbox_id: str):
         """删除沙箱。

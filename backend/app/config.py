@@ -68,6 +68,7 @@ class Settings(BaseSettings):
     opensandbox_timeout: int = 30
     opensandbox_memory_mb: int = 512
     opensandbox_cpu: float = 1.0
+    opensandbox_image: str = "easyrag-python-opensandbox:3.11"  # 包含 /execd 的镜像
 
     # 告警配置
     alert_email: str | None = None

@@ -38,12 +38,12 @@ async def run_in_sandbox(
     import json
     inputs_json = json.dumps(inputs)
 
-    # OpenSandbox 要求 timeout 至少为 60 秒
-    effective_timeout = max(timeout, 60)
+    # 使用 findings.md 推荐的镜像
+    image = "python:3.10-alpine"
 
     # 创建沙箱
     sandbox = await client.create_sandbox(
-        image="python:3.11-slim",
+        image=image,
         command=[
             "python", "-c",
             f"""
@@ -84,7 +84,7 @@ except Exception as e:
         ],
         env={"PYTHONUNBUFFERED": "1"},
         memory_mb=memory_mb,
-        timeout_seconds=effective_timeout,
+        timeout_seconds=timeout,
     )
 
     # 等待执行完成
@@ -94,14 +94,46 @@ except Exception as e:
     logs = await client.get_logs(sandbox.sandbox_id)
 
     # 解析输出
+    # 日志是文本格式，我们的代码会在最后一行打印 JSON 结果
     try:
         import json
-        result_data = json.loads(logs.stdout)
-        return SandboxResult(
-            ok=result_data.get("success", False),
-            output=result_data.get("output"),
-            error=result_data.get("error")
-        )
+
+        # 从日志中提取 JSON 行
+        stdout_text = logs.stdout if isinstance(logs.stdout, str) else str(logs.stdout)
+        lines = stdout_text.strip().split('\n')
+
+        # 找到最后一个包含 JSON 的行
+        json_line = None
+        for line in reversed(lines):
+            line = line.strip()
+            # 检查是否是 JSON 格式（包含 success 字段）
+            if 'success' in line and '{' in line:
+                try:
+                    # 尝试提取 JSON 部分
+                    start = line.index('{')
+                    end = line.rindex('}') + 1
+                    json_str = line[start:end]
+                    # 验证是否是有效 JSON
+                    json.loads(json_str)
+                    json_line = json_str
+                    break
+                except:
+                    continue
+
+        if json_line:
+            result_data = json.loads(json_line)
+            return SandboxResult(
+                ok=result_data.get("success", False),
+                output=result_data.get("output"),
+                error=result_data.get("error")
+            )
+        else:
+            # 没有找到 JSON，返回原始输出
+            return SandboxResult(
+                ok=True,
+                output={"raw_output": stdout_text},
+                error=None
+            )
     except Exception as e:
         return SandboxResult(
             ok=False,
