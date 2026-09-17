@@ -99,134 +99,122 @@ async def build_tools(agent: Agent, lazy_mcp: bool = True) -> list:
     return tools
 
 
-def _mcp_lazy_tool(m: Mcp):
-    """创建延迟加载的 MCP 工具。
+def _mcp_proxy_tool(m: Mcp):
+    """创建 MCP 代理工具，动态执行实际的工具调用。
 
-    在被调用时才真正连接 MCP 服务并执行工具调用。
-    支持任意参数格式，智能路由到合适的工具。
-
-    Args:
-        m: MCP 配置实例
-
-    Returns:
-        LangChain StructuredTool
+    这个工具在被调用时会：
+    1. 动态连接到 MCP 服务
+    2. 发现可用的工具
+    3. 执行实际的工具调用
+    4. 返回结果
     """
     from langchain_core.tools import StructuredTool
     from pydantic import BaseModel, Field
 
-    # 工具名称（合法化）
     tool_name = _sanitize_tool_name(m.name, prefix="mcp")
 
-    # 工具描述
+    # 动态描述，引导 LLM 正确使用
     description = (
         f"MCP 服务：{m.name}。"
         f"提供 {m.tool_count} 个工具的访问。"
-        f"调用时传递查询参数（如 query）即可自动选择合适的工具。"
+        f"**调用时需要指定工具名称和参数**。"
     )
 
-    # 灵活的参数模型
-    class LazyMCPInput(BaseModel):
-        """支持多种参数格式的输入模型。"""
-        query: str = Field(
-            default="",
-            description="搜索查询或其他文本参数"
-        )
-        url: str = Field(
-            default="",
-            description="URL 参数（用于获取网页内容）"
-        )
+    # 定义输入参数
+    class MCPToolInput(BaseModel):
         tool_name: str = Field(
             default="",
-            description="指定要调用的 MCP 工具名称（可选）"
+            description="要调用的 MCP 工具名称（可选，留空自动选择）。例如：search、fetch"
+        )
+        arguments: dict = Field(
+            default_factory=dict,
+            description="工具参数。例如：{\"query\": \"搜索关键词\"} 或 {\"url\": \"网址\"}"
         )
 
-        class Config:
-            extra = "allow"  # 允许额外参数
+    async def _execute_mcp_tool(tool_name: str = "", arguments: dict = None, **kwargs) -> str:
+        """动态连接 MCP 服务并执行工具调用。
 
-    async def _execute_lazy_mcp(**kwargs) -> str:
-        """延迟加载并执行 MCP 工具。
-
-        工作流程：
-        1. 连接到 MCP 服务
-        2. 发现可用工具
-        3. 智能选择合适的工具
-        4. 执行工具调用
-        5. 返回结果
+        支持智能路由和参数兼容：
+        - 如果未指定 tool_name，自动选择合适的工具
+        - 如果 arguments 中包含常见的参数（如 query），自动映射
+        - 支持**kwargs 接收直接传递的参数（兼容旧格式）
         """
+        # 参数兼容：支持 kwargs 中直接传递参数
+        if arguments is None:
+            arguments = {}
+
+        # 合并 kwargs 到 arguments
+        if kwargs:
+            arguments.update(kwargs)
+
+        # 如果 tool_name 为空但有 arguments，继续处理
+
         try:
-            # 步骤 1：连接到 MCP 服务
+            # 动态加载 MCP 工具
             from app.core.agent.tool_adapters.mcp_tools import load_tools as _load_mcp
 
-            # 延迟加载 MCP 工具
+            # 连接到 MCP 服务并发现工具
             mcp_tools = await _load_mcp(m)
 
             if not mcp_tools:
+                return f"[MCP {m.name}] 错误：未找到可用的工具"
+
+            # 智能路由：如果未指定工具名，根据参数推断
+            if not tool_name:
+                # 常见参数到工具名的映射
+                if "query" in arguments:
+                    # 有查询参数，可能是搜索工具
+                    tool_name = "search"
+                elif "url" in arguments:
+                    # 有 URL 参数，可能是获取工具
+                    tool_name = "fetch"
+                elif "code" in arguments or "script" in arguments:
+                    # 有代码参数，可能是执行工具
+                    tool_name = "execute"
+                else:
+                    # 使用第一个可用工具
+                    tool_name = mcp_tools[0].name
+
+            # 查找匹配的工具
+            target_tool = None
+            for t in mcp_tools:
+                # 匹配工具名称（忽略前缀，支持模糊匹配）
+                t_name_lower = t.name.lower().replace("-", "_")
+                t_name_requested = tool_name.lower().replace("-", "_")
+
+                if (t.name == tool_name or
+                    t_name_lower == t_name_requested or
+                    t_name_lower.endswith(f"_{t_name_requested}") or
+                    t_name_requested in t_name_lower):
+                    target_tool = t
+                    break
+
+            if not target_tool:
+                # 列出可用工具及描述
+                available = []
+                for t in mcp_tools:
+                    desc = getattr(t, 'description', '')[:50] or ''
+                    available.append(f"{t.name}: {desc}")
                 return (
-                    f"[MCP {m.name}] 错误：未找到可用的工具。\n"
-                    f"请检查 MCP 服务是否正常运行。"
+                    f"[MCP {m.name}] 错误：未找到工具 '{tool_name}'\n"
+                    f"可用工具：\n" + "\n".join(available)
                 )
 
-            # 步骤 2：智能路由 - 选择合适的工具
-            target_tool = None
-            requested_tool_name = kwargs.get('tool_name', '').lower()
+            # 执行工具调用
+            result = await target_tool.ainvoke(arguments)
 
-            # 优先级 1：明确指定的工具名
-            if requested_tool_name:
-                for tool in mcp_tools:
-                    if requested_tool_name in tool.name.lower():
-                        target_tool = tool
-                        break
-
-            # 优先级 2：根据参数类型推断
-            if not target_tool:
-                # 查询参数 → 搜索工具
-                if kwargs.get('query'):
-                    for tool in mcp_tools:
-                        if 'search' in tool.name.lower():
-                            target_tool = tool
-                            break
-
-                # URL 参数 → 获取工具
-                if kwargs.get('url'):
-                    for tool in mcp_tools:
-                        if 'fetch' in tool.name.lower() or 'get' in tool.name.lower():
-                            target_tool = tool
-                            break
-
-            # 优先级 3：使用第一个可用工具
-            if not target_tool:
-                target_tool = mcp_tools[0]
-
-            # 步骤 3：过滤参数
-            # 移除内部参数（tool_name）和空值
-            tool_kwargs = {
-                k: v for k, v in kwargs.items()
-                if k != 'tool_name' and v
-            }
-
-            # 步骤 4：执行工具调用
-            result = await target_tool.ainvoke(tool_kwargs)
-
-            # 步骤 5：返回结果
+            # 返回结果
             return str(result)
 
         except Exception as e:
-            # 错误处理
             import traceback
-            error_msg = str(e)
-            stack_trace = traceback.format_exc()
+            return f"[MCP {m.name}] 执行失败: {str(e)}\n{traceback.format_exc()}"
 
-            return (
-                f"[MCP {m.name}] 执行失败: {error_msg}\n\n"
-                f"详细错误:\n{stack_trace}"
-            )
-
-    # 创建 StructuredTool
     return StructuredTool.from_function(
-        coroutine=_execute_lazy_mcp,
+        coroutine=_execute_mcp_tool,
         name=tool_name,
         description=description,
-        args_schema=LazyMCPInput,
+        args_schema=MCPToolInput,
     )
 
 
