@@ -131,3 +131,34 @@ async def chat(aid: str, body: dict = Body(default={}), me=Depends(get_current_u
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.delete("/{aid}/history")
+async def clear_history(aid: str, me=Depends(get_current_user)):
+    """清除智能体对话历史记录。
+
+    用于重置对话状态，清除累积的历史消息和失败的工具调用记录。
+    """
+    from app.core.agent.memory import get_checkpointer
+
+    try:
+        checkpointer = await get_checkpointer()
+
+        # 构造 thread_id（与 agent_service.py 中的格式一致）
+        thread_id = f"agent:{aid}:{me.id}"
+
+        # 删除该 thread_id 的所有 checkpoint
+        # LangGraph checkpointer 使用 adelete_thread 方法
+        if hasattr(checkpointer, 'adelete_thread'):
+            # MemorySaver 和 PostgresSaver 都支持
+            await checkpointer.adelete_thread(thread_id)
+        elif hasattr(checkpointer, 'storage'):
+            # 备用方案：直接清空内存（仅 MemorySaver）
+            if thread_id in checkpointer.storage:
+                del checkpointer.storage[thread_id]
+
+        return ok({"message": "历史记录已清除", "threadId": thread_id})
+
+    except Exception as e:
+        from app.exceptions import BizException, ErrorCode
+        raise BizException(ErrorCode.SERVER_ERROR, f"清除历史记录失败: {str(e)}")
