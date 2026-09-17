@@ -9,11 +9,13 @@ langchain 1.x 已移除该 API。故本实现改为：
   （config={"callbacks": ...}）。
 """
 import os
+import logging
 
 from langfuse.langchain import CallbackHandler
 
 from app.config import settings
 
+logger = logging.getLogger(__name__)
 _langfuse_handler = None
 
 
@@ -42,6 +44,7 @@ def configure_tracing() -> None:
         if settings.langfuse_host:
             os.environ["LANGFUSE_HOST"] = settings.langfuse_host
         _langfuse_handler = CallbackHandler()
+        logger.info(f"[Tracing] Langfuse handler created: {_langfuse_handler is not None}")
     # none: no-op
 
 

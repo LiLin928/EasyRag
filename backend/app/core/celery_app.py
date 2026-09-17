@@ -145,6 +145,11 @@ def init_worker_process(**kwargs):
         asyncio.set_event_loop_policy(WindowsSelectorEventLoopPolicy())
         logger.info("[Celery] Set WindowsSelectorEventLoopPolicy for asyncpg compatibility")
 
+    # 初始化 tracing（Langfuse/LangSmith）
+    from app.providers.trace.factory import configure_tracing
+    configure_tracing()
+    logger.info("[Celery] Tracing initialized")
+
     # 初始化 checkpointer（在事件循环中运行）
     try:
         from app.core.agent.memory import get_checkpointer

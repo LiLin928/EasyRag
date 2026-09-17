@@ -10,6 +10,7 @@ import structlog
 
 from app.core.celery_app import celery_app
 from app.core.redis_streams import publish_event
+from app.providers.trace.factory import get_tracing_callbacks
 
 logger = structlog.get_logger()
 
@@ -186,7 +187,11 @@ async def _resume_execution_async(
         raise
 
     # 3. 获取当前状态
-    config = {"configurable": {"thread_id": execution_id}}
+    tracing_callbacks = get_tracing_callbacks()
+    config = {
+        "configurable": {"thread_id": execution_id},
+        "callbacks": tracing_callbacks
+    }
     current_state = await graph.aget_state(config)
 
     logger.info(f"[Resume] Current state: next={current_state.next}")
@@ -329,7 +334,12 @@ async def _execute_workflow_async(
 
     # 4. 执行工作流
     try:
-        config = {"configurable": {"thread_id": execution_id}}
+        # 注入 tracing callbacks（Langfuse/LangSmith）
+        tracing_callbacks = get_tracing_callbacks()
+        config = {
+            "configurable": {"thread_id": execution_id},
+            "callbacks": tracing_callbacks
+        }
         logger.info(f"[Workflow] Starting execution {execution_id} with config {config}, debug={debug}")
 
         # 根据是否调试模式选择不同的执行方式
