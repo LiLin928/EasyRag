@@ -100,24 +100,114 @@ async def build_tools(agent: Agent, lazy_mcp: bool = True) -> list:
 
 
 def _mcp_proxy_tool(m: Mcp):
-    """创建 MCP 代理工具，延迟实际连接。
+    """创建 MCP 代理工具，动态执行实际的工具调用。
 
-    这个工具只是告诉 LLM 有哪些 MCP 工具可用，
-    实际调用时会动态连接 MCP 服务。
+    这个工具在被调用时会：
+    1. 动态连接到 MCP 服务
+    2. 发现可用的工具
+    3. 执行实际的工具调用
+    4. 返回结果
     """
-    from langchain_core.tools import tool
+    from langchain_core.tools import StructuredTool
+    from pydantic import BaseModel, Field
 
     tool_name = _sanitize_tool_name(m.name, prefix="mcp")
-    description = f"MCP 服务：{m.name}。包含 {m.tool_count} 个工具。"
 
-    # 如果知道具体工具名称，可以添加到描述中
-    # 这里只是占位，实际工具会在调用时动态发现
+    # 动态描述，引导 LLM 正确使用
+    description = (
+        f"MCP 服务：{m.name}。"
+        f"提供 {m.tool_count} 个工具的访问。"
+        f"**调用时需要指定工具名称和参数**。"
+    )
 
-    @tool(tool_name, description=description)
-    def _mcp_proxy() -> str:
-        return f"[MCP {m.name}] MCP 服务已就绪，包含 {m.tool_count} 个工具"
+    # 定义输入参数
+    class MCPToolInput(BaseModel):
+        tool_name: str = Field(
+            default="",
+            description="要调用的 MCP 工具名称（可选，留空自动选择）。例如：search、fetch"
+        )
+        arguments: dict = Field(
+            default_factory=dict,
+            description="工具参数。例如：{\"query\": \"搜索关键词\"} 或 {\"url\": \"网址\"}"
+        )
 
-    return _mcp_proxy
+    async def _execute_mcp_tool(tool_name: str = "", arguments: dict = None) -> str:
+        """动态连接 MCP 服务并执行工具调用。
+
+        支持智能路由：
+        - 如果未指定 tool_name，自动选择合适的工具
+        - 如果 arguments 中包含常见的参数（如 query），自动映射
+        """
+        if arguments is None:
+            arguments = {}
+
+        try:
+            # 动态加载 MCP 工具
+            from app.core.agent.tool_adapters.mcp_tools import load_tools as _load_mcp
+
+            # 连接到 MCP 服务并发现工具
+            mcp_tools = await _load_mcp(m)
+
+            if not mcp_tools:
+                return f"[MCP {m.name}] 错误：未找到可用的工具"
+
+            # 智能路由：如果未指定工具名，根据参数推断
+            if not tool_name:
+                # 常见参数到工具名的映射
+                if "query" in arguments:
+                    # 有查询参数，可能是搜索工具
+                    tool_name = "search"
+                elif "url" in arguments:
+                    # 有 URL 参数，可能是获取工具
+                    tool_name = "fetch"
+                elif "code" in arguments or "script" in arguments:
+                    # 有代码参数，可能是执行工具
+                    tool_name = "execute"
+                else:
+                    # 使用第一个可用工具
+                    tool_name = mcp_tools[0].name
+
+            # 查找匹配的工具
+            target_tool = None
+            for t in mcp_tools:
+                # 匹配工具名称（忽略前缀，支持模糊匹配）
+                t_name_lower = t.name.lower().replace("-", "_")
+                t_name_requested = tool_name.lower().replace("-", "_")
+
+                if (t.name == tool_name or
+                    t_name_lower == t_name_requested or
+                    t_name_lower.endswith(f"_{t_name_requested}") or
+                    t_name_requested in t_name_lower):
+                    target_tool = t
+                    break
+
+            if not target_tool:
+                # 列出可用工具及描述
+                available = []
+                for t in mcp_tools:
+                    desc = getattr(t, 'description', '')[:50] or ''
+                    available.append(f"{t.name}: {desc}")
+                return (
+                    f"[MCP {m.name}] 错误：未找到工具 '{tool_name}'\n"
+                    f"可用工具：\n" + "\n".join(available)
+                )
+
+            # 执行工具调用
+            result = await target_tool.ainvoke(arguments)
+
+            # 返回结果
+            return str(result)
+
+        except Exception as e:
+            import traceback
+            return f"[MCP {m.name}] 执行失败: {str(e)}\n{traceback.format_exc()}"
+
+    return StructuredTool.from_function(
+        coroutine=_execute_mcp_tool,
+        name=tool_name,
+        description=description,
+        args_schema=MCPToolInput,
+    )
 
 
 def _tool_to_structured(t: Tool):

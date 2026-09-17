@@ -12,6 +12,7 @@ class WorkflowState(TypedDict, total=False):
     execution_id: str
     thread_id: str
     user_id: str
+    inputs: dict              # 用户输入参数（从 start 节点传入）
     variables: dict            # 全局变量池 workflow.custom.*
     node_outputs: dict          # {node_id: {output, error, metadata}}
     current_node: Optional[str]

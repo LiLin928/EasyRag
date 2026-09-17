@@ -1,0 +1,350 @@
+event: phase
+data: {"phase": "generate", "message": "智能体 测试2 思考中..."}
+
+event: tool_start
+data: {"tool": "duckduckgo-search", "input": "{'query': '长江电力 股价'}"}
+
+event: tool_end
+data: {"tool": "duckduckgo-search", "output": "content='[MCP duckduckgo-search] MCP 服务已就绪，包含 2 个工具' name='duckduckgo-search' tool_call_id='call_00_ET_mP7miZMsOUFj1NXzFczX6475'"}
+
+event: token
+data: {"token": "I"}
+
+event: token
+data: {"token": " used"}
+
+event: token
+data: {"token": " the"}
+
+event: token
+data: {"token": " M"}
+
+event: token
+data: {"token": "CP"}
+
+event: token
+data: {"token": " tool"}
+
+event: token
+data: {"token": " `"}
+
+event: token
+data: {"token": "du"}
+
+event: token
+data: {"token": "ck"}
+
+event: token
+data: {"token": "du"}
+
+event: token
+data: {"token": "ck"}
+
+event: token
+data: {"token": "go"}
+
+event: token
+data: {"token": "-search"}
+
+event: token
+data: {"token": "`"}
+
+event: token
+data: {"token": " to"}
+
+event: token
+data: {"token": " search"}
+
+event: token
+data: {"token": " for"}
+
+event: token
+data: {"token": " **"}
+
+event: token
+data: {"token": "\""}
+
+event: token
+data: {"token": "长江"}
+
+event: token
+data: {"token": "电力"}
+
+event: token
+data: {"token": " "}
+
+event: token
+data: {"token": "股价"}
+
+event: token
+data: {"token": "\""}
+
+event: token
+data: {"token": "**,"}
+
+event: token
+data: {"token": " but"}
+
+event: token
+data: {"token": " it"}
+
+event: token
+data: {"token": " only"}
+
+event: token
+data: {"token": " returned"}
+
+event: token
+data: {"token": ":\n\n"}
+
+event: token
+data: {"token": "```\n"}
+
+event: token
+data: {"token": "[M"}
+
+event: token
+data: {"token": "CP"}
+
+event: token
+data: {"token": " duck"}
+
+event: token
+data: {"token": "du"}
+
+event: token
+data: {"token": "ck"}
+
+event: token
+data: {"token": "go"}
+
+event: token
+data: {"token": "-search"}
+
+event: token
+data: {"token": "]"}
+
+event: token
+data: {"token": " M"}
+
+event: token
+data: {"token": "CP"}
+
+event: token
+data: {"token": " "}
+
+event: token
+data: {"token": "服务"}
+
+event: token
+data: {"token": "已"}
+
+event: token
+data: {"token": "就"}
+
+event: token
+data: {"token": "绪"}
+
+event: token
+data: {"token": "，"}
+
+event: token
+data: {"token": "包含"}
+
+event: token
+data: {"token": " "}
+
+event: token
+data: {"token": "2"}
+
+event: token
+data: {"token": " "}
+
+event: token
+data: {"token": "个"}
+
+event: token
+data: {"token": "工具"}
+
+event: token
+data: {"token": "\n"}
+
+event: token
+data: {"token": "```\n\n"}
+
+event: token
+data: {"token": "No"}
+
+event: token
+data: {"token": " actual"}
+
+event: token
+data: {"token": " search"}
+
+event: token
+data: {"token": " results"}
+
+event: token
+data: {"token": " were"}
+
+event: token
+data: {"token": " returned"}
+
+event: token
+data: {"token": ","}
+
+event: token
+data: {"token": " so"}
+
+event: token
+data: {"token": " I"}
+
+event: token
+data: {"token": "'m"}
+
+event: token
+data: {"token": " unable"}
+
+event: token
+data: {"token": " to"}
+
+event: token
+data: {"token": " provide"}
+
+event: token
+data: {"token": " the"}
+
+event: token
+data: {"token": " stock"}
+
+event: token
+data: {"token": " price"}
+
+event: token
+data: {"token": " information"}
+
+event: token
+data: {"token": " via"}
+
+event: token
+data: {"token": " this"}
+
+event: token
+data: {"token": " tool"}
+
+event: token
+data: {"token": " right"}
+
+event: token
+data: {"token": " now"}
+
+event: token
+data: {"token": "."}
+
+event: token
+data: {"token": " For"}
+
+event: token
+data: {"token": " real"}
+
+event: token
+data: {"token": "-time"}
+
+event: token
+data: {"token": " quotes"}
+
+event: token
+data: {"token": " on"}
+
+event: token
+data: {"token": " **"}
+
+event: token
+data: {"token": "长江"}
+
+event: token
+data: {"token": "电力"}
+
+event: token
+data: {"token": " ("}
+
+event: token
+data: {"token": "600"}
+
+event: token
+data: {"token": "900"}
+
+event: token
+data: {"token": ")"}
+
+event: token
+data: {"token": "**,"}
+
+event: token
+data: {"token": " I"}
+
+event: token
+data: {"token": "'d"}
+
+event: token
+data: {"token": " suggest"}
+
+event: token
+data: {"token": " checking"}
+
+event: token
+data: {"token": " a"}
+
+event: token
+data: {"token": " securities"}
+
+event: token
+data: {"token": " app"}
+
+event: token
+data: {"token": " or"}
+
+event: token
+data: {"token": " financial"}
+
+event: token
+data: {"token": " website"}
+
+event: token
+data: {"token": " ("}
+
+event: token
+data: {"token": "东方"}
+
+event: token
+data: {"token": "财富"}
+
+event: token
+data: {"token": "、"}
+
+event: token
+data: {"token": "同"}
+
+event: token
+data: {"token": "花"}
+
+event: token
+data: {"token": "顺"}
+
+event: token
+data: {"token": "、"}
+
+event: token
+data: {"token": "雪"}
+
+event: token
+data: {"token": "球"}
+
+event: token
+data: {"token": "等"}
+
+event: token
+data: {"token": ")."}
+
+event: done
+data: {"agentId": "545d7c33-0a98-4af6-afc3-f73b0f282efb"}
