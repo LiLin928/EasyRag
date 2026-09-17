@@ -60,9 +60,9 @@ class AgentService:
                         temperature=agent.temp,
                         max_tokens=int(agent.maxtok) if agent.maxtok else None
                     )
-                    # 启用延迟加载 MCP，提升启动速度
-                    tools = await build_tools(agent, lazy_mcp=True)
-                    logger.info(f"[Agent] Agent {agent.name} initialized with {len(tools)} tools (lazy MCP loading enabled)")
+                    # 禁用延迟加载，直接加载真实的 MCP 工具
+                    tools = await build_tools(agent, lazy_mcp=False)
+                    logger.info(f"[Agent] Agent {agent.name} initialized with {len(tools)} tools (MCP tools loaded immediately)")
 
                     # 构造系统提示词
                     from langchain_core.messages import SystemMessage
