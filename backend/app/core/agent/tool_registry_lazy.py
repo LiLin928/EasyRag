@@ -153,6 +153,7 @@ def _mcp_lazy_tool(m: Mcp):
         5. 返回结果
         """
         import logging
+        import asyncio
         logger = logging.getLogger(__name__)
         logger.info(f"[MCP Lazy] 开始执行懒加载工具，参数: {kwargs}")
 
@@ -215,13 +216,28 @@ def _mcp_lazy_tool(m: Mcp):
             }
             logger.info(f"[MCP Lazy] 步骤3: 过滤后参数: {tool_kwargs}")
 
-            # 步骤 4：执行工具调用
+            # 步骤 4：执行工具调用（带超时保护）
             logger.info(f"[MCP Lazy] 步骤4: 调用工具 {target_tool.name}...")
-            result = await target_tool.ainvoke(tool_kwargs)
-            logger.info(f"[MCP Lazy] 步骤5: 工具返回成功，结果长度: {len(str(result))}")
 
-            # 步骤 5：返回结果
-            return str(result)
+            # 设置超时时间（60秒）
+            TIMEOUT_SECONDS = 60
+
+            try:
+                result = await asyncio.wait_for(
+                    target_tool.ainvoke(tool_kwargs),
+                    timeout=TIMEOUT_SECONDS
+                )
+                logger.info(f"[MCP Lazy] 步骤5: 工具返回成功，结果长度: {len(str(result))}")
+                return str(result)
+
+            except asyncio.TimeoutError:
+                error_msg = (
+                    f"[MCP {m.name}] 工具执行超时（{TIMEOUT_SECONDS}秒）。\n"
+                    f"可能是 DuckDuckGo 搜索响应缓慢或被阻塞。\n"
+                    f"请稍后重试或使用其他关键词。"
+                )
+                logger.error(f"[MCP Lazy] 工具执行超时")
+                return error_msg
 
         except Exception as e:
             # 错误处理
