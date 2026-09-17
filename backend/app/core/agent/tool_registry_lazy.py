@@ -70,12 +70,12 @@ async def build_tools(agent: Agent, lazy_mcp: bool = True) -> list:
 
         # 4. mcps → 延迟加载或立即加载
         if lazy_mcp:
-            # 延迟加载：只添加 MCP 元数据工具描述
+            # 延迟加载：在首次调用时才连接 MCP 服务
             for mid in (agent.mcps or []):
                 m = (await s.execute(select(Mcp).where(Mcp.id == mid))).scalar_one_or_none()
                 if m and m.status == "on":
-                    # 添加一个轻量级的 MCP 工具代理
-                    tools.append(_mcp_proxy_tool(m))
+                    # 创建延迟加载的代理工具
+                    tools.append(_mcp_lazy_tool(m))
         else:
             # 立即加载：实际连接 MCP 服务发现工具
             for mid in (agent.mcps or []):
@@ -131,15 +131,23 @@ def _mcp_proxy_tool(m: Mcp):
             description="工具参数。例如：{\"query\": \"搜索关键词\"} 或 {\"url\": \"网址\"}"
         )
 
-    async def _execute_mcp_tool(tool_name: str = "", arguments: dict = None) -> str:
+    async def _execute_mcp_tool(tool_name: str = "", arguments: dict = None, **kwargs) -> str:
         """动态连接 MCP 服务并执行工具调用。
 
-        支持智能路由：
+        支持智能路由和参数兼容：
         - 如果未指定 tool_name，自动选择合适的工具
         - 如果 arguments 中包含常见的参数（如 query），自动映射
+        - 支持**kwargs 接收直接传递的参数（兼容旧格式）
         """
+        # 参数兼容：支持 kwargs 中直接传递参数
         if arguments is None:
             arguments = {}
+
+        # 合并 kwargs 到 arguments
+        if kwargs:
+            arguments.update(kwargs)
+
+        # 如果 tool_name 为空但有 arguments，继续处理
 
         try:
             # 动态加载 MCP 工具
