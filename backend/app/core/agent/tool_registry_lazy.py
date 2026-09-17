@@ -159,9 +159,13 @@ def _rag_tool(doc_ids: list):
     async def _s(query: str) -> str:
         from app.core.retrieval.hybrid_retriever import HybridRetriever
         from app.core.scenes import get_scene_config
+        from app.providers.trace.factory import get_tracing_callbacks
         scene = await get_scene_config("general")
         retriever = HybridRetriever(doc_ids=doc_ids, scene_config=scene, top_k=5, enable_nav=False)
-        docs = await retriever.ainvoke(query)
+        # 注入 tracing callbacks
+        callbacks = get_tracing_callbacks()
+        config = {"callbacks": callbacks} if callbacks else {}
+        docs = await retriever.ainvoke(query, config=config)
         return "\n\n".join(d.page_content for d in docs) or "未找到相关信息"
 
     return _s
@@ -205,13 +209,8 @@ async def _get_execution(exec_id: str):
 
 
 def _skill_tool(sk: Skill):
-    """构建技能激活工具。"""
-    from langchain_core.tools import tool
+    """构建技能激活工具（带脚本执行）。"""
+    from app.core.agent.skill_tool_executor import create_skill_tool_with_scripts
 
-    skill_name = _sanitize_tool_name(sk.name, prefix="skill")
-
-    @tool(skill_name, description=f"激活技能：{sk.description or ''}")
-    def _activate() -> str:
-        return f"[SKILL {sk.name}]\n{sk.prompt or ''}"
-
-    return _activate
+    # 使用带脚本执行的技能工具
+    return create_skill_tool_with_scripts(sk)

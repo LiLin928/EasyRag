@@ -42,7 +42,7 @@ async def test():
         
         if tool_end:
             print("\nLast tool output:")
-            print(tool_end[-1])
+            print(tool_end[-1][:500])
 
 
 asyncio.run(test())

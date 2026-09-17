@@ -1,0 +1,29 @@
+event: phase
+data: {"phase": "generate", "message": "智能体 测试2 思考中..."}
+
+event: token
+data: {"token": "1"}
+
+event: token
+data: {"token": " +"}
+
+event: token
+data: {"token": " "}
+
+event: token
+data: {"token": "200"}
+
+event: token
+data: {"token": " ="}
+
+event: token
+data: {"token": " **"}
+
+event: token
+data: {"token": "201"}
+
+event: token
+data: {"token": "**"}
+
+event: done
+data: {"agentId": "545d7c33-0a98-4af6-afc3-f73b0f282efb"}

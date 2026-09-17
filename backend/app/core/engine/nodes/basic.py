@@ -74,6 +74,7 @@ class LLMExecutor(BaseNodeExecutor):
         from langchain_core.output_parsers import StrOutputParser
         from langchain_core.prompts import ChatPromptTemplate
         from app.providers.langchain_factory import build_chat_model
+        from app.providers.trace.factory import get_tracing_callbacks
 
         t0 = time.perf_counter()
         llm = await build_chat_model(
@@ -86,7 +87,10 @@ class LLMExecutor(BaseNodeExecutor):
         usr_prompt = resolve(self.config.get("user_prompt") or self.config.get("userPrompt", ""), state)
         prompt = ChatPromptTemplate.from_messages([("system", sys_prompt), ("human", usr_prompt)])
         chain = prompt | llm | StrOutputParser()
-        out = await chain.ainvoke({})
+        # 注入 tracing callbacks（Langfuse/LangSmith）
+        callbacks = get_tracing_callbacks()
+        config = {"callbacks": callbacks} if callbacks else {}
+        out = await chain.ainvoke({}, config=config)
         elapsed = round((time.perf_counter() - t0) * 1000, 1)
         outputs = {**state.get("node_outputs", {}), self.node_id: {"output": out}}
         timings = {**state.get("node_timings", {}), self.node_id: elapsed}
@@ -97,6 +101,7 @@ class RAGExecutor(BaseNodeExecutor):
     async def run(self, state: dict) -> dict:
         from app.core.retrieval.hybrid_retriever import HybridRetriever
         from app.core.scenes import get_scene_config
+        from app.providers.trace.factory import get_tracing_callbacks
 
         t0 = time.perf_counter()
         query = resolve(self.config.get("query", ""), state)
@@ -107,7 +112,10 @@ class RAGExecutor(BaseNodeExecutor):
             top_k=self.config.get("top_k", 5),
             enable_nav=self.config.get("enable_navigation", True),
         )
-        docs = await retriever.ainvoke(query)
+        # 注入 tracing callbacks 到检索调用
+        callbacks = get_tracing_callbacks()
+        config = {"callbacks": callbacks} if callbacks else {}
+        docs = await retriever.ainvoke(query, config=config)
         answer = ""
         if self.config.get("generate_answer"):
             from langchain_core.output_parsers import StrOutputParser
@@ -119,7 +127,7 @@ class RAGExecutor(BaseNodeExecutor):
                 ("system", "根据以下上下文回答问题。\n\n{context}"),
                 ("human", query),
             ])
-            answer = await (prompt | gen_llm | StrOutputParser()).ainvoke({"context": context})
+            answer = await (prompt | gen_llm | StrOutputParser()).ainvoke({"context": context}, config=config)
         elapsed = round((time.perf_counter() - t0) * 1000, 1)
         outputs = {**state.get("node_outputs", {}), self.node_id: {
             "chunks": [d.page_content for d in docs], "answer": answer,

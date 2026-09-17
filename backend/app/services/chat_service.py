@@ -162,7 +162,11 @@ async def chat_stream(req, user_id):
                     if history:
                         rewrite_prompt = _build_rewrite_prompt(req.question, history)
                         logger.info("[Chat] Calling LLM for rewrite...")
-                        resp = await llm.ainvoke(rewrite_prompt)
+                        # 注入 tracing callbacks
+                        from app.providers.trace.factory import get_tracing_callbacks
+                        callbacks = get_tracing_callbacks()
+                        config = {"callbacks": callbacks} if callbacks else {}
+                        resp = await llm.ainvoke(rewrite_prompt, config=config)
                         rewritten = resp.content.strip() if hasattr(resp, "content") else str(resp)
                         logger.info(f"[Chat] Query rewritten: {rewritten[:50]}...")
                     else:
@@ -239,8 +243,12 @@ async def chat_stream(req, user_id):
                 scene_cfg = await get_scene_config(req.scene)
                 prompt = _build_prompt(req.question, refs, scene_cfg, history)  # 传递历史消息
                 logger.info(f"[Chat] Starting LLM stream for question: {req.question[:50]}...")
+                # 注入 tracing callbacks
+                from app.providers.trace.factory import get_tracing_callbacks
+                callbacks = get_tracing_callbacks()
+                config = {"callbacks": callbacks} if callbacks else {}
                 token_count = 0
-                async for chunk in gen_llm.astream(prompt):
+                async for chunk in gen_llm.astream(prompt, config=config):
                     token = chunk.content if hasattr(chunk, "content") else str(chunk)
                     if token:
                         buffer.append(token)

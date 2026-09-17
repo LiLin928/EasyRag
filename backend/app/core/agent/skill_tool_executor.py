@@ -114,10 +114,20 @@ def create_skill_tool_with_scripts(sk: Skill) -> StructuredTool:
     # 创建工具名称
     tool_name = _sanitize_tool_name(sk.name, prefix="skill")
 
+    # 增强工具描述，明确使用场景
+    enhanced_description = sk.description or f"激活技能：{sk.name}"
+
+    # 如果有脚本，添加更明确的描述
+    if sk.scripts:
+        enhanced_description = (
+            f"执行数学计算任务。{enhanced_description} "
+            f"**必须使用此工具**来处理所有数学运算、数字计算、加法、减法等计算任务。"
+        )
+
     return StructuredTool.from_function(
         coroutine=_execute_skill,
         name=tool_name,
-        description=sk.description or f"激活技能：{sk.name}",
+        description=enhanced_description,
         args_schema=SkillInput,
     )
 

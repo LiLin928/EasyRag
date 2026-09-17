@@ -1,6 +1,9 @@
 """Tracing span 上下文管理器。
 
 支持嵌套的 span 追踪，自动管理父子关系。
+
+注意：Langfuse/LangSmith 的实际追踪由 LangChain CallbackHandler 自动处理。
+本模块仅提供 span 上下文管理，用于本地调试和日志记录。
 """
 import os
 from contextlib import contextmanager
@@ -132,65 +135,19 @@ def traced_span(
 def _export_span(span: dict) -> None:
     """导出 span 到 tracing 后端。
 
-    根据 settings.tracing_provider 选择导出目标。
+    注意：Langfuse/LangSmith 的实际追踪由 LangChain CallbackHandler 自动处理。
+    这里仅记录日志，不手动导出。
 
     Args:
         span: 要导出的 span 字典
     """
-    try:
-        from app.config import settings
+    # 仅记录调试日志
+    logger.debug(
+        f"Span completed: {span['name']} (duration: {span['duration_ms']:.2f}ms, "
+        f"trace_id: {span['trace_id'][:12] if span.get('trace_id') else 'N/A'})"
+    )
 
-        if settings.tracing_provider == "langfuse":
-            _export_to_langfuse(span)
-        elif settings.tracing_provider == "langsmith":
-            _export_to_langsmith(span)
-        # none: 不导出
-    except Exception as e:
-        logger.warning(f"Failed to export span: {e}")
+    # Langfuse/LangSmith 通过 LangChain CallbackHandler 自动追踪
+    # 无需手动导出
 
 
-def _export_to_langfuse(span: dict) -> None:
-    """导出到 Langfuse。
-
-    使用 Langfuse 4.x SDK 的 start_observation API 创建 span。
-
-    Args:
-        span: 要导出的 span 字典
-    """
-    try:
-        from langfuse import Langfuse
-
-        langfuse = Langfuse()
-
-        # Langfuse 4.x 使用 start_observation 创建 span
-        # 注意：Langfuse 要求 trace_id 必须是 32 位小写十六进制字符
-        # 如果不符合格式，Langfuse 会自动生成新的 trace_id
-        observation = langfuse.start_observation(
-            name=span["name"],
-            as_type="span",  # 指定为 span 类型
-            metadata=span["attributes"],
-        )
-
-        # 更新 observation 的结束时间
-        observation.update(
-            end_time=span["end_time"],
-        )
-
-        langfuse.flush()
-
-    except Exception as e:
-        logger.warning(f"Failed to export span to Langfuse: {e}")
-
-
-def _export_to_langsmith(span: dict) -> None:
-    """导出到 LangSmith。
-
-    LangSmith 通过环境变量自动追踪，这里可以添加额外的元数据。
-    当前实现为空，因为 LangSmith 主要通过 LangChain 的内置追踪机制工作。
-
-    Args:
-        span: 要导出的 span 字典
-    """
-    # LangSmith 通过环境变量自动追踪
-    # 这里可以添加额外的元数据
-    pass
