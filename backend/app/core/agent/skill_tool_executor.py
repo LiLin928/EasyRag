@@ -31,9 +31,13 @@ def create_skill_tool_with_scripts(sk: Skill) -> StructuredTool:
     """
 
     class SkillInput(BaseModel):
-        query: str = Field(description="用户查询或输入文本")
+        """技能工具输入参数。"""
+        query: str = Field(
+            default="",
+            description="用户查询或输入文本（可选，如果不提供将使用空字符串）"
+        )
 
-    async def _execute_skill(query: str) -> str:
+    async def _execute_skill(query: str = "") -> str:
         """执行技能脚本链。
 
         工作流程：

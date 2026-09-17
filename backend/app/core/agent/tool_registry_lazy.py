@@ -140,8 +140,7 @@ def _mcp_lazy_tool(m: Mcp):
             description="指定要调用的 MCP 工具名称（可选）"
         )
 
-        class Config:
-            extra = "allow"  # 允许额外参数
+        model_config = {"extra": "allow"}  # 允许额外参数
 
     async def _execute_lazy_mcp(**kwargs) -> str:
         """延迟加载并执行 MCP 工具。
