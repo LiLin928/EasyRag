@@ -152,18 +152,25 @@ def _mcp_lazy_tool(m: Mcp):
         4. 执行工具调用
         5. 返回结果
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[MCP Lazy] 开始执行懒加载工具，参数: {kwargs}")
+
         try:
             # 步骤 1：连接到 MCP 服务
             from app.core.agent.tool_adapters.mcp_tools import load_tools as _load_mcp
 
             # 延迟加载 MCP 工具
+            logger.info(f"[MCP Lazy] 步骤1: 连接 MCP 服务: {m.name}")
             mcp_tools = await _load_mcp(m)
+            logger.info(f"[MCP Lazy] 步骤2: 发现 {len(mcp_tools)} 个工具")
+            for t in mcp_tools:
+                logger.info(f"  - {t.name}")
 
             if not mcp_tools:
-                return (
-                    f"[MCP {m.name}] 错误：未找到可用的工具。\n"
-                    f"请检查 MCP 服务是否正常运行。"
-                )
+                error_msg = f"[MCP {m.name}] 错误：未找到可用的工具。请检查 MCP 服务是否正常运行。"
+                logger.error(error_msg)
+                return error_msg
 
             # 步骤 2：智能路由 - 选择合适的工具
             target_tool = None
@@ -174,6 +181,7 @@ def _mcp_lazy_tool(m: Mcp):
                 for tool in mcp_tools:
                     if requested_tool_name in tool.name.lower():
                         target_tool = tool
+                        logger.info(f"[MCP Lazy] 根据指定工具名选择: {tool.name}")
                         break
 
             # 优先级 2：根据参数类型推断
@@ -183,6 +191,7 @@ def _mcp_lazy_tool(m: Mcp):
                     for tool in mcp_tools:
                         if 'search' in tool.name.lower():
                             target_tool = tool
+                            logger.info(f"[MCP Lazy] 根据参数推断选择搜索工具: {tool.name}")
                             break
 
                 # URL 参数 → 获取工具
@@ -190,11 +199,13 @@ def _mcp_lazy_tool(m: Mcp):
                     for tool in mcp_tools:
                         if 'fetch' in tool.name.lower() or 'get' in tool.name.lower():
                             target_tool = tool
+                            logger.info(f"[MCP Lazy] 根据参数推断选择获取工具: {tool.name}")
                             break
 
             # 优先级 3：使用第一个可用工具
             if not target_tool:
                 target_tool = mcp_tools[0]
+                logger.info(f"[MCP Lazy] 使用第一个工具: {target_tool.name}")
 
             # 步骤 3：过滤参数
             # 移除内部参数（tool_name）和空值
@@ -202,9 +213,12 @@ def _mcp_lazy_tool(m: Mcp):
                 k: v for k, v in kwargs.items()
                 if k != 'tool_name' and v
             }
+            logger.info(f"[MCP Lazy] 步骤3: 过滤后参数: {tool_kwargs}")
 
             # 步骤 4：执行工具调用
+            logger.info(f"[MCP Lazy] 步骤4: 调用工具 {target_tool.name}...")
             result = await target_tool.ainvoke(tool_kwargs)
+            logger.info(f"[MCP Lazy] 步骤5: 工具返回成功，结果长度: {len(str(result))}")
 
             # 步骤 5：返回结果
             return str(result)
@@ -214,6 +228,9 @@ def _mcp_lazy_tool(m: Mcp):
             import traceback
             error_msg = str(e)
             stack_trace = traceback.format_exc()
+
+            logger.error(f"[MCP Lazy] 执行失败: {error_msg}")
+            logger.error(f"[MCP Lazy] 详细错误:\n{stack_trace}")
 
             return (
                 f"[MCP {m.name}] 执行失败: {error_msg}\n\n"
