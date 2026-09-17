@@ -1,0 +1,72 @@
+# OpenSandbox 配置文件
+# EasyRAG Python 技能沙箱配置
+# OpenSandbox 配置文件
+# EasyRAG Python 技能沙箱配置
+
+[runtime]
+
+# 运行时类型，固定填 docker
+type = "docker"
+# 沙箱执行镜像，和你[docker]里image保持一致
+execd_image = "python:3.11-slim"
+
+default_timeout = 60
+max_concurrent = 10
+auto_cleanup = true
+memory_limit_mb = 256
+[server]
+# API 服务配置
+host = "0.0.0.0"
+port = 8090
+api_key = "easyrag2026"
+
+[sandbox]
+# 沙箱环境配置
+execution_timeout = 60          # 代码执行超时（秒）
+max_memory_mb = 256             # 最大内存使用（MB）
+max_cpu_percent = 50            # 最大 CPU 使用（百分比）
+network_access = false          # 是否允许网络访问（安全考虑，建议禁用）
+
+[docker]
+# Docker 容器配置
+image = "python:3.11-slim"      # 使用 Python 3.11 环境
+container_prefix = "sandbox"    # 容器名称前缀
+auto_cleanup = true             # 执行完成后自动清理容器
+
+[logging]
+# 日志配置
+level = "INFO"
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+[limits]
+# 资源限制
+max_file_size_mb = 10           # 最大文件大小（MB）
+max_output_size_kb = 100        # 最大输出大小（KB）
+max_concurrent_executions = 10  # 最大并发执行数
+
+# ==================== EasyRAG 特定配置 ====================
+[easyrag]
+# EasyRAG 技能执行配置
+allowed_modules = [
+    "numpy",        # 数值计算
+    "pandas",       # 数据处理
+    "requests",     # HTTP 请求（如果启用网络）
+    "langchain",    # LangChain
+    "openai",       # OpenAI SDK
+]
+
+# 禁止的模块（安全考虑）
+blocked_modules = [
+    "os",           # 禁止操作系统调用
+    "subprocess",   # 禁止子进程
+    "socket",       # 禁止 socket（除非启用网络）
+    "eval",         # 禁止 eval
+    "exec",         # 禁止 exec
+]
+
+# 允许的环境变量（可传递给沙箱）
+allowed_env_vars = [
+    "OPENAI_API_KEY",
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+]
