@@ -143,6 +143,7 @@ class OpenSandboxClient:
                 base_url=self.base_url,
                 timeout=self.timeout,
                 headers=headers,
+                follow_redirects=True,  # 自动跟随重定向（301/302）
             )
         return self._client
 

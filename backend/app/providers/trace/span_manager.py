@@ -152,7 +152,7 @@ def _export_span(span: dict) -> None:
 def _export_to_langfuse(span: dict) -> None:
     """导出到 Langfuse。
 
-    使用 Langfuse SDK 创建 span。
+    使用 Langfuse 4.x SDK 的 start_observation API 创建 span。
 
     Args:
         span: 要导出的 span 字典
@@ -162,15 +162,18 @@ def _export_to_langfuse(span: dict) -> None:
 
         langfuse = Langfuse()
 
-        # 创建 span
-        langfuse.span(
+        # Langfuse 4.x 使用 start_observation 创建 span
+        # 注意：Langfuse 要求 trace_id 必须是 32 位小写十六进制字符
+        # 如果不符合格式，Langfuse 会自动生成新的 trace_id
+        observation = langfuse.start_observation(
             name=span["name"],
-            id=span["span_id"],
-            parent_observation_id=span["parent_span_id"],
-            trace_id=span["trace_id"],
-            start_time=span["start_time"],
-            end_time=span["end_time"],
+            as_type="span",  # 指定为 span 类型
             metadata=span["attributes"],
+        )
+
+        # 更新 observation 的结束时间
+        observation.update(
+            end_time=span["end_time"],
         )
 
         langfuse.flush()

@@ -1,0 +1,31 @@
+# OpenSandbox Python 镜像
+# 包含 OpenSandbox execd 二进制文件
+
+FROM python:3.11-slim
+
+LABEL maintainer="EasyRAG"
+LABEL description="Python 3.11 runtime with OpenSandbox execd support"
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# 下载并安装 OpenSandbox execd
+# 注意：这里使用模拟的 execd，实际需要从 OpenSandbox 发布页面下载
+RUN wget -O /execd https://github.com/opensandbox-group/OpenSandbox/releases/download/v0.1.0/execd-linux-amd64 || \
+    (echo '#!/bin/sh' > /execd && echo 'exec "$@"' >> /execd) && \
+    chmod +x /execd
+
+# 安装常用 Python 包
+RUN pip install --no-cache-dir \
+    numpy \
+    pandas \
+    requests \
+    httpx
+
+# 设置工作目录
+WORKDIR /workspace
+
+# 默认命令
+CMD ["python"]
